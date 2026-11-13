@@ -1,0 +1,1199 @@
+<!DOCTYPE html>
+<!-- DRAFT — review all numbers and fill CONFIG (challenge name, team) before submission. -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SMW Planetary Earth Analogues Explorer | NASA Space Apps</title>
+<meta name="description" content="Interactive 3D explorer pairing Earth analogue sites with sites on the Moon and Mars, for middle- and high-school classrooms.">
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<style>
+  html,body{height:100%;margin:0;background:#030014;color:#fff;font-family:Inter,"Segoe UI",system-ui,sans-serif;overflow:hidden}
+  #globe-canvas{position:absolute;inset:0;width:100%;height:100%}
+  .glass{background:rgba(10,10,30,.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.14)}
+  .no-scrollbar::-webkit-scrollbar{display:none}.no-scrollbar{scrollbar-width:none}
+  :focus-visible{outline:3px solid #facc15 !important;outline-offset:2px}
+  .star-bg{background-image:radial-gradient(1px 1px at 20% 30%,#fff,transparent),radial-gradient(1px 1px at 60% 70%,#fff,transparent),radial-gradient(1.5px 1.5px at 80% 20%,#fff,transparent),radial-gradient(1px 1px at 40% 80%,#fff,transparent),radial-gradient(1px 1px at 90% 60%,#fff,transparent)}
+
+  /* markers */
+  .marker{position:absolute;left:0;top:0;width:28px;height:28px;margin:-14px 0 0 -14px;padding:0;border:0;background:transparent;cursor:pointer;pointer-events:auto;z-index:20}
+  .marker .dot{position:absolute;left:7px;top:7px;width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 12px currentColor;transition:transform .2s}
+  .marker:hover .dot{transform:scale(1.35)}
+  .marker.active .dot{transform:scale(1.6);animation:pulse 1.2s infinite}
+  /* label position is computed in JS (layoutLabels) so nearby labels never overlap */
+  .marker .lab{position:absolute;left:0;top:0;font-size:11px;line-height:15px;font-weight:700;white-space:nowrap;background:rgba(0,0,0,.78);padding:2px 8px;border-radius:20px;color:#fff;border:1px solid rgba(255,255,255,.25);pointer-events:none;transition:transform .18s ease-out}
+  .marker.active .lab{border-color:rgba(255,255,255,.7);background:rgba(0,0,0,.88)}
+  .marker .lead{position:absolute;left:14px;top:14px;height:1.5px;background:rgba(255,255,255,.6);transform-origin:0 50%;pointer-events:none;display:none}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.6)}50%{box-shadow:0 0 0 10px rgba(255,255,255,0)}}
+
+  /* side panel: desktop = right column, tablet = narrower, phone = bottom sheet */
+  #panel{position:absolute;z-index:30;right:20px;top:122px;bottom:20px;width:350px;display:flex;flex-direction:column;border-radius:18px;overflow:hidden;transition:transform .3s}
+  #panel.side-hidden{transform:translateX(calc(100% + 40px))}
+  @media (max-width:1100px){#panel{width:300px;right:12px}}
+  /* vertical site browser on the left */
+  #site-nav{position:absolute;z-index:30;left:18px;top:122px;bottom:20px;width:250px;padding:0;background:linear-gradient(90deg,rgba(0,0,0,.72),rgba(0,0,0,.25),transparent);}
+  #cards{height:100%;display:flex;flex-direction:column;gap:8px;overflow-y:auto;overflow-x:hidden;padding:8px 10px 8px 0;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.35) transparent;}
+  #cards::-webkit-scrollbar{width:7px;display:block}
+  #cards::-webkit-scrollbar-track{background:rgba(255,255,255,.05);border-radius:99px}
+  #cards::-webkit-scrollbar-thumb{background:rgba(255,255,255,.35);border-radius:99px}
+  #cards .site-card{width:100%;min-width:0;height:72px;display:flex;align-items:center;gap:10px;padding:7px 9px;border-radius:16px}
+  #cards .site-card .thumb-box{width:58px;height:58px;min-width:58px;border-radius:12px}
+  #cards .site-card .c-info{min-width:0;display:flex;flex-direction:column;justify-content:center}
+  #cards .site-card .c-tag{margin-top:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #cards .site-card .c-name{margin-top:3px}
+  @media (max-width:767px){#site-nav{left:8px;right:8px;width:auto;top:auto;bottom:8px;height:128px;padding:0;background:linear-gradient(0deg,rgba(0,0,0,.8),transparent)}#cards{height:100%;flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:8px}.site-card{flex:0 0 210px !important}.site-card .thumb-box{width:52px !important;height:52px !important;min-width:52px !important}#panel{bottom:145px}}
+  @media (max-width:767px){
+    #panel{left:8px;right:8px;width:auto;top:auto;bottom:150px;max-height:50vh}
+    #panel.side-hidden{transform:none}
+    #panel.collapsed .p-body,#panel.collapsed .p-media{display:none}
+  }
+  .p-body{overflow-y:auto;flex:1}
+  .planet-btn{white-space:nowrap}
+  .img-box{position:relative;height:140px;background:#0b0b1f}
+  .img-box img{width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .4s}
+  .img-box img.loaded{opacity:1}
+  .img-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:#9ca3af;text-align:center;padding:8px}
+  .thumb-box{position:relative;height:66px;border-radius:12px;overflow:hidden;background:#0b0b1f;border:1px solid rgba(255,255,255,.1)}
+  .thumb-box img{width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .4s}
+  .thumb-box img.loaded{opacity:1}
+  .bar{height:10px;border-radius:6px;min-width:3px;transition:width .6s}
+  #toast{transition:opacity .4s}
+  @media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important}}
+
+/* ---------- LIQUID GLASS UI / compact location rail ---------- */
+:root{--lg-bg:rgba(255,255,255,.075);--lg-bg-strong:rgba(255,255,255,.105);--lg-border:rgba(255,255,255,.22);--lg-shadow:0 18px 55px rgba(0,0,0,.28);}
+.glass{background:linear-gradient(135deg,rgba(255,255,255,.115),rgba(255,255,255,.035) 48%,rgba(120,180,255,.045));border:1px solid var(--lg-border);box-shadow:var(--lg-shadow),inset 0 1px 0 rgba(255,255,255,.16);backdrop-filter:blur(24px) saturate(145%);-webkit-backdrop-filter:blur(24px) saturate(145%);}
+#site-nav{width:188px;left:14px;top:116px;bottom:18px;padding:0;background:linear-gradient(90deg,rgba(8,12,35,.48),rgba(8,12,35,.16),transparent);}
+#cards{gap:6px;padding:6px 5px 6px 0;scrollbar-width:auto;scrollbar-color:rgba(255,255,255,.28) transparent;}
+#cards::-webkit-scrollbar{width:4px}
+#cards::-webkit-scrollbar-track{background:transparent}
+#cards::-webkit-scrollbar-thumb{background:rgba(255,255,255,.26);border-radius:99px}
+#cards .site-card{height:58px;gap:8px;padding:6px 7px;border-radius:14px;background:linear-gradient(135deg,rgba(255,255,255,.105),rgba(255,255,255,.035));border:1px solid rgba(255,255,255,.14);box-shadow:0 8px 28px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.1);backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);transition:transform .18s,border-color .18s,background .18s}
+#cards .site-card:hover{transform:translateX(2px);border-color:rgba(255,255,255,.3);background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.055))}
+#cards .site-card .thumb-box{width:42px;height:42px;min-width:42px;border-radius:10px}
+#cards .site-card .c-name{font-size:11px;line-height:1.15;margin-top:2px}
+#cards .site-card .c-tag{font-size:8px;letter-spacing:.06em;opacity:.75}
+#cards .site-card .c-region{font-size:8px;line-height:1.1;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#panel{width:332px;right:16px;top:116px;bottom:18px;border-radius:22px;background:linear-gradient(135deg,rgba(255,255,255,.105),rgba(255,255,255,.035) 52%,rgba(120,180,255,.045));border:1px solid rgba(255,255,255,.22);box-shadow:0 22px 65px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.15);backdrop-filter:blur(26px) saturate(150%);-webkit-backdrop-filter:blur(26px) saturate(150%);}
+#panel .bg-white\/5{background:rgba(255,255,255,.055)!important;border-color:rgba(255,255,255,.12)!important;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+#panel .bg-cyan-400\/10{background:rgba(34,211,238,.09)!important;border-color:rgba(103,232,249,.22)!important;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+#panel .img-box{border-color:rgba(255,255,255,.18)!important;box-shadow:0 12px 35px rgba(0,0,0,.2)}
+#panel button,#site-nav button{backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+@media (max-width:1100px){#site-nav{width:170px}#panel{width:300px}}
+@media (max-width:767px){#site-nav{left:8px;right:8px;width:auto;height:112px;bottom:8px;top:auto;background:linear-gradient(0deg,rgba(8,12,35,.42),transparent)}#cards{gap:6px;padding:6px}.site-card{flex:0 0 185px}}
+
+
+/* compact location list + twin/triple analogue dock */
+#site-nav{left:14px;top:116px;bottom:96px;width:178px;background:linear-gradient(90deg,rgba(8,12,35,.34),rgba(8,12,35,.08),transparent)}
+#cards{gap:5px;padding:5px 4px 5px 0;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.24) transparent}
+#cards::-webkit-scrollbar{width:3px} #cards::-webkit-scrollbar-track{background:transparent} #cards::-webkit-scrollbar-thumb{background:rgba(255,255,255,.24);border-radius:99px}
+#cards .site-card{height:48px;gap:8px;padding:5px 7px;border-radius:12px}
+#cards .site-card .c-name{font-size:10px;line-height:1.1;margin-top:2px} #cards .site-card .c-tag{font-size:7px;line-height:1.1;letter-spacing:.05em} #cards .site-card .c-region{display:none}
+#twin-nav{position:absolute;z-index:32;left:205px;right:350px;bottom:40px;height:56px;padding:5px 8px;border-radius:17px;background:linear-gradient(135deg,rgba(255,255,255,.10),rgba(255,255,255,.035));border:1px solid rgba(255,255,255,.16);box-shadow:0 18px 50px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(24px) saturate(145%);-webkit-backdrop-filter:blur(24px) saturate(145%)}
+.twin-title{position:absolute;left:10px;top:-16px;font-size:8px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.58);display:flex;gap:6px} #twin-count{color:rgba(255,255,255,.32)}
+#twin-cards{height:100%;display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;align-items:stretch;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.22) transparent}
+#twin-cards::-webkit-scrollbar{height:3px} #twin-cards::-webkit-scrollbar-track{background:transparent} #twin-cards::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:99px}
+.twin-card{flex:0 0 178px;height:44px;display:flex;align-items:center;gap:7px;padding:4px 7px;border-radius:11px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.055);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);transition:.16s}
+.twin-card:hover{background:rgba(255,255,255,.105);border-color:rgba(255,255,255,.28);transform:translateY(-1px)} .twin-card.active{background:rgba(34,211,238,.14);border-color:rgba(103,232,249,.48)}
+.twin-thumb{width:32px;height:32px;min-width:32px;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.22)} .twin-thumb img{width:100%;height:100%;object-fit:cover}
+.twin-name{font-size:9px;font-weight:900;line-height:1.12;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.twin-planet{font-size:7px;opacity:.7;margin-top:2px;white-space:nowrap}
+#zoom-dock{position:absolute;z-index:33;left:50%;transform:translateX(-50%);bottom:7px;height:27px;width:166px;padding:3px 6px;display:flex;align-items:center;gap:5px;border-radius:999px}
+#zoom-dock button{width:20px;height:20px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);font-size:14px;line-height:1;color:white} #zoom-range{width:102px;height:3px;accent-color:#67e8f9;cursor:pointer}
+@media(max-width:1100px){#site-nav{width:158px;bottom:96px}#twin-nav{left:180px;right:310px}.twin-card{flex-basis:155px}}
+@media(max-width:767px){#site-nav{left:8px;right:8px;width:auto;top:auto;bottom:112px;height:92px;background:linear-gradient(0deg,rgba(8,12,35,.32),transparent)}#cards{flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:5px}.site-card{flex:0 0 150px!important;height:46px!important}#twin-nav{left:8px;right:8px;bottom:38px;height:50px;padding:4px 6px}.twin-card{height:40px;flex-basis:145px}.twin-thumb{width:30px;height:30px;min-width:30px}#zoom-dock{bottom:5px;width:145px;height:26px}#zoom-range{width:84px}}
+
+
+/* ===== REFINED TWIN/TRIPLE DOCK + RIGHT-BOTTOM ZOOM ===== */
+#twin-nav{
+  left:50%; right:auto; width:max-content; max-width:calc(100vw - 420px);
+  transform:translateX(-50%); bottom:88px; height:125px; padding:0;
+  border-radius:0; background:transparent; border:0; box-shadow:none;
+  backdrop-filter:none; -webkit-backdrop-filter:none;
+}
+#twin-title{top:-20px;left:0;transform:none;font-size:9px;white-space:nowrap}
+#twin-cards{
+  height:100%; gap:12px; align-items:stretch; justify-content:flex-start;
+  overflow-x:auto; overflow-y:hidden; padding:0 0 2px; scrollbar-width:thin;
+}
+.twin-card{
+  flex:0 0 178px; height:112px; display:grid;
+  grid-template-columns:1fr; grid-template-rows:64px auto;
+  gap:6px; align-items:start; padding:6px; border-radius:15px;
+}
+.twin-thumb{width:100%;height:64px;min-width:0;border-radius:11px}
+.twin-name{font-size:11px;line-height:1.15}
+.twin-planet{font-size:8px;margin-top:2px}
+#zoom-dock{
+  left:auto; right:360px; bottom:42px; width:166px; height:29px; transform:none;
+}
+@media(max-width:1100px){
+  #twin-nav{left:50%;right:auto;width:max-content;max-width:calc(100vw - 350px);height:118px;bottom:82px;transform:translateX(-50%)}
+  #twin-cards{gap:9px}
+  .twin-card{flex-basis:175px;height:106px;grid-template-rows:60px auto}
+  .twin-thumb{height:60px}
+}
+@media(max-width:767px){
+  #twin-nav{left:8px;right:8px;width:auto;max-width:none;transform:none;bottom:42px;height:96px}
+  #twin-title{top:-15px}
+  #twin-cards{gap:7px;padding:0 4px}
+  .twin-card{flex:0 0 145px;height:96px;grid-template-rows:51px auto;gap:3px;padding:5px;border-radius:12px}
+  .twin-thumb{height:51px;border-radius:8px}
+  .twin-name{font-size:10px}
+  .twin-planet{font-size:8px;margin-top:2px}
+  #zoom-dock{right:10px;bottom:7px;width:145px;height:26px}
+}
+/* ===== LAYOUT: Group dock sits BELOW the planet, zoom bar moves bottom-left ===== */
+@media(min-width:768px){
+  #twin-nav{bottom:14px;height:102px}
+  #twin-cards{gap:10px}
+  .twin-card{flex:0 0 168px;height:96px;grid-template-rows:52px auto;gap:5px;padding:5px}
+  .twin-thumb{height:52px;border-radius:9px}
+  #zoom-dock{left:14px;right:auto;bottom:18px;width:150px;transform:none}
+  #zoom-range{width:88px}
+  #site-nav{bottom:134px}
+}
+</style>
+</head>
+<body class="star-bg">
+
+<canvas id="globe-canvas" aria-hidden="true"></canvas>
+<p class="sr-only" id="sr-desc">A rotating 3D globe. Use the site list at the bottom, or the arrow keys, to choose a site. Details appear in the information panel.</p>
+<div id="markers" class="absolute inset-0 pointer-events-none overflow-hidden"></div>
+
+<!-- HEADER -->
+<header class="absolute top-0 left-0 right-0 z-30 flex items-center justify-between gap-2 px-3 md:px-6 py-3">
+  <div class="flex items-center gap-3 min-w-0">
+    <div class="w-10 h-10 shrink-0 rounded-2xl bg-gradient-to-br from-indigo-950 to-violet-700 flex items-center justify-center" aria-hidden="true"><svg viewBox="0 0 32 32" width="30" height="30"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fef08a"/><stop offset="1" stop-color="#f59e0b"/></linearGradient></defs><ellipse cx="16" cy="17" rx="14" ry="4.5" fill="none" stroke="#67e8f9" stroke-width="1.2" transform="rotate(-20 16 16)"/><path d="M16 3l3 8.6 9 .4-7.1 5.5 2.5 8.7L16 21l-7.4 5.2 2.5-8.7L4 12l9-.4z" fill="url(#lg)" stroke="#fff" stroke-width=".8" stroke-linejoin="round"/><circle cx="5" cy="6" r="1.1" fill="#fff"/><circle cx="27" cy="25" r="1.3" fill="#a5f3fc"/><circle cx="28" cy="6" r=".8" fill="#fff"/></svg></div>
+    <div class="min-w-0">
+      <h1 id="t-title" class="font-black text-sm md:text-lg leading-tight truncate">SMW Planetary Earth Analogues Explorer</h1>
+      <p id="t-subtitle" class="hidden sm:block text-[11px] md:text-xs text-cyan-200/80 truncate"></p>
+    </div>
+  </div>
+  <div class="flex items-center gap-2 shrink-0">
+    <button id="btn-tour" class="bg-cyan-400 hover:bg-cyan-300 text-black font-bold text-xs md:text-sm px-3 md:px-4 py-2 rounded-full"></button>
+    <button id="btn-adv" class="bg-amber-400 hover:bg-amber-300 text-black font-bold text-xs md:text-sm px-3 md:px-4 py-2 rounded-full"></button>
+    <button id="btn-game" class="bg-violet-500 hover:bg-violet-400 text-white font-bold text-xs md:text-sm px-3 md:px-4 py-2 rounded-full"></button>
+    <button id="btn-about" class="glass text-xs md:text-sm px-3 py-2 rounded-full"></button>
+    <button id="btn-lang" class="glass text-xs md:text-sm px-3 py-2 rounded-full font-bold" lang=""></button>
+  </div>
+</header>
+
+<!-- PLANET SWITCH -->
+<nav id="planet-nav" aria-label="Planet" class="absolute top-[64px] md:top-[72px] left-1/2 -translate-x-1/2 z-30 flex gap-1.5 glass rounded-full p-1.5">
+  <button data-planet="earth" class="planet-btn px-3 md:px-6 py-1.5 rounded-full text-xs md:text-sm font-bold"></button>
+  <button data-planet="moon"  class="planet-btn px-3 md:px-6 py-1.5 rounded-full text-xs md:text-sm font-bold"></button>
+  <button data-planet="mars"  class="planet-btn px-3 md:px-6 py-1.5 rounded-full text-xs md:text-sm font-bold"></button>
+</nav>
+
+<div id="tex-status" role="status" aria-live="polite" class="absolute top-[110px] md:top-[118px] left-1/2 -translate-x-1/2 z-30 text-[11px] px-3 py-1 rounded-full bg-black/70 border border-white/15 hidden"></div>
+
+<button id="btn-show-panel" class="absolute z-30 right-3 top-[122px] glass px-3 py-2 rounded-full text-xs font-bold hidden"></button>
+
+<!-- INFO PANEL -->
+<aside id="panel" class="glass" aria-labelledby="p-name">
+  <div class="p-3 pb-2 flex items-start justify-between gap-2 shrink-0">
+    <div class="min-w-0">
+      <div class="flex items-center gap-1.5">
+        <span id="p-pair" class="text-[10px] font-bold tracking-widest text-cyan-300 uppercase"></span>
+        <span id="p-planet" class="text-[10px] px-2 py-0.5 rounded-full bg-white/10"></span>
+      </div>
+      <h2 id="p-name" class="text-lg font-black leading-tight mt-1"></h2>
+      <p id="p-loc" class="text-xs text-gray-300"></p>
+    </div>
+    <button id="btn-hide-panel" class="w-8 h-8 shrink-0 rounded-full bg-white/10 hover:bg-white/25 text-sm font-bold" aria-expanded="true"></button>
+  </div>
+  <div class="p-media px-3 shrink-0">
+    <figure class="m-0">
+      <div class="img-box rounded-xl overflow-hidden border border-white/15">
+        <div class="img-msg" id="p-img-msg"></div>
+        <img id="p-img" alt="" referrerpolicy="no-referrer">
+      </div>
+      <figcaption id="p-credit" class="text-[10px] text-gray-400 mt-1 truncate"></figcaption>
+    </figure>
+  </div>
+  <div class="p-body p-3 pt-2">
+    <div class="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-2 py-1.5">
+      <span id="p-coords" class="text-[11px] font-mono text-cyan-100"></span>
+      <button id="btn-copy-coords" class="text-[10px] font-bold px-2 py-1 rounded-lg bg-white/10 hover:bg-white/25 shrink-0"></button>
+    </div>
+
+    <div class="mt-3 rounded-xl bg-cyan-400/10 border border-cyan-300/20 p-3">
+      <h3 class="text-xs font-bold text-cyan-200">💡 <span id="t-why"></span></h3>
+      <p id="p-why" class="text-xs mt-1 leading-relaxed text-gray-100"></p>
+    </div>
+
+    <div id="p-facts" class="grid grid-cols-2 gap-2 mt-3 text-xs"></div>
+    <p id="p-approx" class="text-[10px] text-gray-400 mt-1"></p>
+
+    <!-- data-driven: scale vs twin -->
+    <section id="scale-box" class="mt-3 rounded-xl bg-white/5 border border-white/10 p-3">
+      <h3 class="text-xs font-bold">📏 <span id="t-scale"></span></h3>
+      <div id="p-scale" class="mt-2 space-y-3 text-[11px]"></div>
+    </section>
+
+    <!-- data-driven: gravity calculator -->
+    <section class="mt-3 rounded-xl bg-white/5 border border-white/10 p-3">
+      <h3 class="text-xs font-bold">🧮 <span id="t-grav"></span></h3>
+      <div class="flex flex-wrap gap-2 mt-2 text-[11px]">
+        <label class="flex items-center gap-1"><span id="t-jump-in"></span>
+          <input id="in-jump" type="number" min="1" max="300" value="50" class="w-14 bg-black/40 border border-white/20 rounded px-1 py-0.5"> cm</label>
+        <label class="flex items-center gap-1"><span id="t-mass-in"></span>
+          <input id="in-mass" type="number" min="1" max="500" value="20" class="w-14 bg-black/40 border border-white/20 rounded px-1 py-0.5"> kg</label>
+      </div>
+      <table class="w-full mt-2 text-[11px]" aria-live="polite">
+        <thead><tr class="text-gray-400"><th class="text-left font-normal"></th><th id="th-g" class="text-right font-normal"></th><th id="th-jump" class="text-right font-normal"></th><th id="th-feel" class="text-right font-normal"></th></tr></thead>
+        <tbody id="grav-rows"></tbody>
+      </table>
+      <p id="t-grav-note" class="text-[10px] text-gray-400 mt-1"></p>
+    </section>
+
+    <div class="mt-3 text-[11px] text-gray-400">📚 <span id="p-ref"></span></div>
+    <div class="flex gap-2 mt-3">
+      <button id="btn-pair" class="flex-1 bg-violet-500 hover:bg-violet-400 font-bold text-xs py-2 rounded-xl"></button>
+      <button id="btn-fly" class="flex-1 bg-white/10 hover:bg-white/20 font-bold text-xs py-2 rounded-xl"></button>
+    </div>
+  </div>
+</aside>
+
+<!-- SITE LIST: vertical browser on the left -->
+<nav id="site-nav" aria-label="Sites">
+  <div id="cards" role="list"></div>
+</nav>
+<nav id="twin-nav" aria-label="Analogue group"><div class="twin-title"><span id="twin-label">Analogue group</span><span id="twin-count"></span></div><div id="twin-cards" role="list"></div></nav>
+<div id="zoom-dock" class="glass" aria-label="Globe zoom"><button id="zoom-out" type="button" aria-label="Zoom out">−</button><input id="zoom-range" type="range" min="1.6" max="6" step="0.01" value="3.2" aria-label="Zoom level"><button id="zoom-in" type="button" aria-label="Zoom in">+</button></div>
+
+<!-- INTRO -->
+<div id="intro" role="dialog" aria-modal="true" aria-labelledby="i-title" class="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+  <div class="glass rounded-3xl max-w-lg w-full p-6 md:p-8 text-center max-h-[90vh] overflow-y-auto">
+    <div class="text-5xl" aria-hidden="true">🌍🌙🔴</div>
+    <h2 id="i-title" class="text-2xl md:text-3xl font-black mt-3"></h2>
+    <p id="i-desc" class="text-sm text-gray-200 mt-3 leading-relaxed"></p>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-4 text-left">
+      <div class="rounded-xl bg-white/5 p-3 text-xs"><b id="i-s1"></b><br><span id="i-s1d" class="text-gray-300"></span></div>
+      <div class="rounded-xl bg-white/5 p-3 text-xs"><b id="i-s2"></b><br><span id="i-s2d" class="text-gray-300"></span></div>
+      <div class="rounded-xl bg-white/5 p-3 text-xs"><b id="i-s3"></b><br><span id="i-s3d" class="text-gray-300"></span></div>
+    </div>
+    <button id="btn-start" class="mt-5 w-full bg-cyan-400 hover:bg-cyan-300 text-black font-black py-3 rounded-2xl text-lg"></button>
+    <p id="i-note" class="text-[11px] text-gray-400 mt-3"></p>
+    <p id="i-offline" class="text-[11px] text-amber-300 mt-2 hidden"></p>
+  </div>
+</div>
+
+<!-- ABOUT + REFERENCES -->
+<div id="about" role="dialog" aria-modal="true" aria-labelledby="a-title" class="absolute inset-0 z-50 hidden items-center justify-center p-4 bg-black/80">
+  <div class="glass rounded-3xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
+    <h2 id="a-title" class="text-xl font-black"></h2>
+    <div id="a-body" class="text-sm text-gray-200 mt-3 space-y-3 leading-relaxed"></div>
+    <button id="btn-close-about" class="mt-4 w-full bg-white/10 hover:bg-white/20 py-2.5 rounded-xl font-bold"></button>
+  </div>
+</div>
+
+<!-- ADVENTURE -->
+<div id="adv" role="dialog" aria-modal="true" class="absolute inset-0 z-50 hidden items-center justify-center p-2 bg-black/90">
+ <div class="w-full max-w-4xl">
+  <div class="flex justify-between items-center mb-1 px-1"><h2 id="a-title" class="font-black"></h2><button data-a="x" aria-label="Close" class="w-8 h-8 rounded-full bg-white/10 hover:bg-white/25 font-bold">✕</button></div>
+  <div class="relative rounded-2xl overflow-hidden border border-white/20"><canvas id="a-cv" width="800" height="400" class="w-full block bg-black" style="max-height:calc(100vh - 140px);object-fit:contain;image-rendering:pixelated"></canvas><div id="a-ov" class="absolute inset-0 overflow-y-auto bg-black/80 p-3 hidden"></div></div>
+  <div class="flex gap-2 mt-2 justify-center md:hidden select-none">
+   <button data-k="ArrowLeft" class="glass w-16 h-12 rounded-xl text-xl">◀</button><button data-k="ArrowRight" class="glass w-16 h-12 rounded-xl text-xl">▶</button><button data-k="Shift" class="glass w-16 h-12 rounded-xl text-xl">⚡</button><button data-k="ArrowUp" class="bg-cyan-400 text-black w-20 h-12 rounded-xl text-xl font-black">⤒</button>
+  </div>
+  <p id="a-keys" class="hidden md:block text-[11px] text-gray-400 mt-1 text-center"></p>
+ </div>
+</div>
+
+<!-- GAME -->
+<div id="game" role="dialog" aria-modal="true" class="absolute inset-0 z-50 hidden items-center justify-center p-4 bg-black/80">
+  <div class="glass rounded-3xl max-w-2xl w-full p-5 md:p-6 max-h-[92vh] overflow-y-auto relative">
+    <button data-g="close" aria-label="Close" class="absolute right-3 top-3 w-8 h-8 rounded-full bg-white/10 hover:bg-white/25 text-sm font-bold">✕</button>
+    <div id="g-body"></div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite" class="absolute bottom-40 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-full text-xs font-bold opacity-0 pointer-events-none"></div>
+
+<!-- If the 3D module never starts (no internet / CDN blocked), tell the user instead of showing a blank page -->
+<script>
+setTimeout(function(){
+  if(window.__appReady) return;
+  var el=document.getElementById('i-offline');
+  if(el){el.textContent='⚠ The 3D engine could not load (internet or CDN blocked). Please check the connection, or run the offline copy. / Không tải được phần 3D — kiểm tra mạng hoặc dùng bản offline.';el.classList.remove('hidden');}
+},9000);
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ================= CONFIG — fill before submitting ================= */
+const CONFIG = {
+  challenge: '',          // e.g. official Space Apps challenge title
+  team: '',               // team name
+  imagesCheckedOn: '2026-11-09'   // date the Wikimedia file names/licences were checked
+};
+
+/* ================= PLANET DATA (mean values, NASA Planetary Fact Sheets) ================= */
+const G_EARTH = 9.81;
+const PLANETS = {
+  earth:{ color:0x1a4d8f, g:9.8, diameter:12756, day:{en:'24 h',vi:'24 giờ'}, pressure:{en:'1,014 mb',vi:'1.014 mb'}, air:{en:'N₂ 78%, O₂ 21%',vi:'N₂ 78%, O₂ 21%'} },
+  moon: { color:0x555560, g:1.6, diameter:3475,  day:{en:'29.5 Earth days',vi:'29,5 ngày Trái Đất'}, pressure:{en:'≈ 0 (exosphere)',vi:'≈ 0 (ngoại quyển)'}, air:{en:'none',vi:'không có'} },
+  mars: { color:0x8a2f14, g:3.7, diameter:6792,  day:{en:'24.7 h',vi:'24,7 giờ'}, pressure:{en:'≈ 6.4 mb (mean)',vi:'≈ 6,4 mb (trung bình)'}, air:{en:'CO₂ 95%',vi:'CO₂ 95%'} }
+};
+const PLANET_NAME = {earth:{en:'Earth',vi:'Trái Đất'},moon:{en:'Moon',vi:'Mặt Trăng'},mars:{en:'Mars',vi:'Sao Hỏa'}};
+const PLANET_ICON = {earth:'🌍',moon:'🌙',mars:'🔴'};
+
+/* ================= SITES =================
+   facts: numeric {k,v,u,a(approx)} or text {k,t:{en,vi}}; n = footnote.
+   All site numbers are rounded values from public sources — re-check against the listed reference before submission. */
+const SITES = [
+ {id:'grand', planet:'earth', pair:1, name:{en:'Grand Canyon',vi:'Hẻm núi Grand Canyon'}, region:{en:'Arizona, USA',vi:'Arizona, Hoa Kỳ'}, lat:36.10, lon:-112.10, color:'#38bdf8',
+  why:{en:'A canyon about 1.6 km deep, carved through layered rock by the Colorado River. Its exposed layers help geologists read the layered walls of Valles Marineris — although Valles formed mainly by crustal stretching, not by one river.',
+       vi:'Hẻm sâu khoảng 1,6 km do sông Colorado khoét qua các lớp đá. Các lớp đá lộ ra giúp nhà địa chất "đọc" vách nhiều lớp của Valles Marineris — dù Valles hình thành chủ yếu do vỏ hành tinh bị kéo giãn, không phải do một dòng sông.'},
+  facts:[{k:'length',v:446,u:'km'},{k:'depth',v:1.6,u:'km',a:1},{k:'age',v:6,u:'myr',a:1}], ref:'USGS · U.S. National Park Service'},
+ {id:'valles', planet:'mars', pair:1, name:{en:'Valles Marineris',vi:'Valles Marineris'}, region:{en:'Mars, near the equator',vi:'Sao Hỏa, gần xích đạo'}, lat:-13.9, lon:-59.2, color:'#fb7185',
+  why:{en:'The largest canyon system in the solar system — more than 4,000 km long and up to about 7 km deep. Landslides and layered walls can be compared with Earth canyons.',
+       vi:'Hệ hẻm núi lớn nhất Hệ Mặt Trời — dài hơn 4.000 km, sâu tới khoảng 7 km. Có thể so sánh sạt lở và vách nhiều lớp với các hẻm núi trên Trái Đất.'},
+  facts:[{k:'length',v:4000,u:'km',a:1},{k:'depth',v:7,u:'km',a:1},{k:'width',v:200,u:'km',a:1}], ref:'NASA Mars Trek · USGS'},
+ {id:'mauna', planet:'earth', pair:2, name:{en:'Mauna Kea, Hawaiʻi',vi:'Mauna Kea, Hawaiʻi'}, region:{en:'Hawaiʻi, USA',vi:'Hawaiʻi, Hoa Kỳ'}, lat:19.82, lon:-155.47, color:'#38bdf8',
+  why:{en:'A basaltic shield volcano built by runny lava, the same volcano type as Olympus Mons. NASA has used Hawaiian volcanic terrain to field-test lunar and Martian equipment.',
+       vi:'Núi lửa hình khiên bằng dung nham bazan loãng — cùng kiểu với Olympus Mons. NASA từng dùng địa hình núi lửa Hawaiʻi để thử thiết bị cho Mặt Trăng và Sao Hỏa.'},
+  facts:[{k:'height',v:10.2,u:'km',a:1,n:{en:'from the sea floor (4.2 km above sea level)',vi:'tính từ đáy biển (4,2 km trên mực nước biển)'}},{k:'type',t:{en:'Shield volcano',vi:'Núi lửa khiên'}},{k:'rock',t:{en:'Basalt',vi:'Bazan'}}], ref:'USGS Hawaiian Volcano Observatory'},
+ {id:'olympus', planet:'mars', pair:2, name:{en:'Olympus Mons',vi:'Núi Olympus Mons'}, region:{en:'Mars, Tharsis region',vi:'Sao Hỏa, vùng Tharsis'}, lat:18.65, lon:-133.8, color:'#fb7185',
+  why:{en:'The tallest volcano known in the solar system. It is a shield volcano like Mauna Kea, but far larger — repeated basaltic eruptions built it over a long period, and Mars lacks Earth-like moving plate tectonics, so volcanism could remain concentrated in one region.',
+       vi:'Núi lửa cao nhất đã biết trong Hệ Mặt Trời. Cũng là núi lửa khiên như Mauna Kea nhưng lớn hơn nhiều — nhiều đợt phun trào bazan lặp lại trong thời gian dài, trong khi Sao Hỏa không có kiến tạo mảng giống Trái Đất nên hoạt động núi lửa có thể tập trung lâu ở một vùng.'},
+  facts:[{k:'height',v:22,u:'km',a:1,n:{en:'above the Mars datum',vi:'so với mốc độ cao Sao Hỏa'}},{k:'width',v:600,u:'km',a:1},{k:'type',t:{en:'Shield volcano',vi:'Núi lửa khiên'}}], ref:'NASA Mars Trek · USGS'},
+ {id:'meteor', planet:'earth', pair:3, name:{en:'Meteor Crater',vi:'Hố thiên thạch Meteor'}, region:{en:'Arizona, USA',vi:'Arizona, Hoa Kỳ'}, lat:35.03, lon:-111.02, color:'#38bdf8',
+  why:{en:'A young, well-preserved simple bowl crater about 1.2 km wide. Apollo astronauts trained here to recognise impact rocks and ejecta.',
+       vi:'Hố va chạm dạng lòng chảo đơn giản, rộng khoảng 1,2 km, còn rất nguyên vẹn. Phi hành gia Apollo từng tập huấn ở đây để nhận biết đá va chạm và lớp đất đá văng ra.'},
+  facts:[{k:'diameter',v:1.2,u:'km',a:1},{k:'depth',v:0.17,u:'km',a:1},{k:'age',v:50,u:'kyr',a:1}], ref:'USGS · Lunar and Planetary Institute'},
+ {id:'tycho', planet:'moon', pair:3, name:{en:'Tycho Crater',vi:'Hố Tycho'}, region:{en:'Moon, southern highlands',vi:'Mặt Trăng, cao nguyên phía nam'}, lat:-43.3, lon:-11.4, color:'#e2e8f0',
+  why:{en:'A young complex crater with a central peak and bright rays. Comparing it with the small, simple Meteor Crater shows how crater shape changes as size grows.',
+       vi:'Hố va chạm phức hợp còn trẻ, có đỉnh trung tâm và các tia sáng. So với Hố Meteor nhỏ và đơn giản, ta thấy hình dạng hố thay đổi thế nào khi kích thước tăng.'},
+  facts:[{k:'diameter',v:85,u:'km',a:1},{k:'depth',v:4.7,u:'km',a:1},{k:'age',v:108,u:'myr',a:1}], ref:'NASA LRO / LROC'},
+ {id:'copernicus', planet:'moon', pair:3, name:{en:'Copernicus Crater',vi:'Hố Copernicus'}, region:{en:'Moon, Oceanus Procellarum',vi:'Mặt Trăng, Biển Bão'}, lat:9.62, lon:-20.08, color:'#e2e8f0',
+  why:{en:'A large complex crater with terraced walls and several central peaks. Its diameter is about 78 times that of Meteor Crater; the comparison illustrates how impact-crater morphology changes at much larger scales.',
+       vi:'Hố phức hợp lớn với vách bậc thang và nhiều đỉnh trung tâm. Đường kính của nó lớn khoảng 78 lần Hố Meteor; so sánh này minh họa hình dạng hố va chạm thay đổi như thế nào ở quy mô lớn hơn.'},
+  facts:[{k:'diameter',v:93,u:'km',a:1},{k:'depth',v:3.8,u:'km',a:1},{k:'age',v:800,u:'myr',a:1}], ref:'NASA LRO / LROC'},
+ {id:'haughton', planet:'earth', pair:4, name:{en:'Haughton Crater',vi:'Hố Haughton'}, region:{en:'Devon Island, Canada',vi:'Đảo Devon, Canada'}, lat:75.38, lon:-89.68, color:'#38bdf8',
+  why:{en:'An impact crater in a cold, dry Arctic desert. The NASA Haughton-Mars Project has used it to test rovers, suits, drills and field procedures for the Moon and Mars.',
+       vi:'Hố va chạm giữa sa mạc lạnh, khô ở Bắc Cực. Dự án Haughton-Mars của NASA dùng nơi này để thử xe tự hành, đồ du hành, máy khoan và quy trình làm việc thực địa cho Mặt Trăng và Sao Hỏa.'},
+  facts:[{k:'diameter',v:23,u:'km',a:1},{k:'climate',t:{en:'Polar desert',vi:'Sa mạc vùng cực'}},{k:'project',t:{en:'Haughton-Mars Project',vi:'Dự án Haughton-Mars'}}], ref:'NASA Haughton-Mars Project · Canadian Space Agency'},
+ {id:'shackleton', planet:'moon', pair:4, name:{en:'Shackleton Crater',vi:'Hố Shackleton'}, region:{en:'Moon, south pole',vi:'Mặt Trăng, cực nam'}, lat:-89.9, lon:0, color:'#e2e8f0',
+  why:{en:'Parts of its interior are permanently shadowed. Orbital data indicate that water ice or frost may be trapped in such cold, dark regions, and the area is near Artemis candidate landing regions. Haughton helps crews rehearse polar fieldwork.',
+       vi:'Một phần bên trong hố nằm trong bóng tối vĩnh viễn. Dữ liệu từ quỹ đạo cho thấy băng nước hoặc sương giá có thể bị giữ lại trong các vùng lạnh, tối này; khu vực nằm gần các vùng đổ bộ dự kiến của Artemis. Haughton giúp phi hành đoàn tập làm việc ở vùng cực.'},
+  facts:[{k:'diameter',v:21,u:'km',a:1},{k:'depth',v:4.2,u:'km',a:1},{k:'ice',t:{en:'Possible (in shadow)',vi:'Có thể có (trong bóng tối)'}}], ref:'NASA LRO · NASA Artemis'},
+ {id:'atacama', planet:'earth', pair:5, name:{en:'Atacama Desert',vi:'Sa mạc Atacama'}, region:{en:'Northern Chile',vi:'Bắc Chile'}, lat:-24.1, lon:-69.9, color:'#38bdf8', approxCoord:true,
+  why:{en:'One of the driest places on Earth. It is a general analogue for dry, oxidising Martian soil (not for one specific crater). NASA teams test drills and life-detection instruments here.',
+       vi:'Một trong những nơi khô nhất Trái Đất. Đây là nơi tương đồng chung với đất khô, bị ôxy hoá của Sao Hỏa (không riêng một hố nào). Các nhóm của NASA thử máy khoan và thiết bị tìm sự sống ở đây.'},
+  facts:[{k:'rain',v:15,u:'mmyr',a:1,n:{en:'less than this in most of the core',vi:'phần lõi thường còn ít hơn'}},{k:'soil',t:{en:'Dry, oxidising',vi:'Khô, bị ôxy hoá'}},{k:'test',t:{en:'Drills, instruments',vi:'Máy khoan, thiết bị'}}], ref:'NASA Astrobiology'},
+ {id:'gale', planet:'mars', pair:5, name:{en:'Gale Crater',vi:'Hố Gale'}, region:{en:'Mars, near the equator',vi:'Sao Hỏa, gần xích đạo'}, lat:-5.4, lon:137.8, color:'#fb7185',
+  why:{en:'Atacama and Gale are complementary analogues: Atacama is a modern Earth laboratory for extreme dryness and life-detection methods, while Gale preserves evidence of an ancient lake environment on Mars. Curiosity studies the rocks and organic molecules in that ancient setting.',
+       vi:'Atacama và Gale là hai địa điểm tương đồng bổ trợ: Atacama là phòng thí nghiệm trên Trái Đất về khô hạn cực đoan và phương pháp tìm dấu hiệu sự sống, còn Gale lưu giữ bằng chứng về môi trường hồ cổ trên Sao Hỏa. Curiosity nghiên cứu đá và các phân tử hữu cơ trong môi trường cổ đó.'},
+  facts:[{k:'diameter',v:154,u:'km',a:1},{k:'peak',v:5.5,u:'km',a:1,n:{en:'Mount Sharp (Aeolis Mons)',vi:'Núi Sharp (Aeolis Mons)'}},{k:'rover',t:{en:'Curiosity (2012–)',vi:'Curiosity (2012–)'}}], ref:'NASA Mars Science Laboratory'},
+ {id:'dryvalley', planet:'earth', pair:6, name:{en:'McMurdo Dry Valleys',vi:'Thung lũng khô McMurdo'}, region:{en:'Antarctica',vi:'Châu Nam Cực'}, lat:-77.5, lon:162.0, color:'#38bdf8',
+  why:{en:'A freezing desert with ice-covered lakes, old lake beds and buried ice — a natural lab for how water and sediment behave in a cold, dry world like early Mars.',
+       vi:'Sa mạc băng giá có hồ phủ băng, đáy hồ cổ và băng bị vùi — phòng thí nghiệm tự nhiên để hiểu nước và trầm tích ở một thế giới lạnh, khô như Sao Hỏa thuở sơ khai.'},
+  facts:[{k:'temp',v:-20,u:'c',a:1},{k:'ice',t:{en:'Buried ice',vi:'Băng bị vùi'}},{k:'lakes',t:{en:'Ice-covered',vi:'Phủ băng'}}], ref:'U.S. National Science Foundation · NASA'},
+ {id:'jezero', planet:'mars', pair:6, name:{en:'Jezero Crater',vi:'Hố Jezero'}, region:{en:'Mars, Isidis region',vi:'Sao Hỏa, vùng Isidis'}, lat:18.38, lon:77.58, color:'#fb7185',
+  why:{en:'An ancient lake basin with a preserved river delta. Perseverance is studying and caching rocks and sediments here to investigate whether ancient environments could have supported microbial life; the site records a complex history of water activity.',
+       vi:'Một lòng chảo hồ cổ với đồng bằng châu thổ còn được bảo tồn. Perseverance đang nghiên cứu và lưu mẫu đá, trầm tích để tìm hiểu liệu các môi trường cổ có thể từng hỗ trợ sự sống vi sinh hay không; địa điểm này ghi lại lịch sử hoạt động của nước khá phức tạp.'},
+  facts:[{k:'diameter',v:45,u:'km',a:1},{k:'delta',t:{en:'Preserved',vi:'Còn giữ nguyên'}},{k:'rover',t:{en:'Perseverance (2021–)',vi:'Perseverance (2021–)'}}], ref:'NASA Mars 2020'},
+ {id:'idaho', planet:'earth', pair:7, name:{en:'Craters of the Moon, Idaho',vi:'Craters of the Moon, Idaho'}, region:{en:'Idaho, USA',vi:'Idaho, Hoa Kỳ'}, lat:43.42, lon:-113.52, color:'#38bdf8',
+  why:{en:'Young basalt lava flows, cinder cones and lava tubes — rock similar to the dark lunar "seas". Apollo 14 astronauts studied volcanic geology here in 1971.',
+       vi:'Các dòng dung nham bazan trẻ, nón tro và ống dung nham — loại đá giống các "biển" tối trên Mặt Trăng. Phi hành gia Apollo 14 đã học địa chất núi lửa ở đây năm 1971.'},
+  facts:[{k:'area',v:1600,u:'km2',a:1,n:{en:'lava field',vi:'cánh đồng dung nham'}},{k:'rock',t:{en:'Basalt lava',vi:'Dung nham bazan'}},{k:'age',v:15,u:'kyr',a:1,n:{en:'oldest flows; youngest ≈ 2 kyr',vi:'dòng cổ nhất; trẻ nhất ≈ 2 nghìn năm'}}], ref:'U.S. National Park Service'},
+ {id:'tranquillitatis', planet:'moon', pair:7, name:{en:'Mare Tranquillitatis — Apollo 11',vi:'Biển Yên Tĩnh — Apollo 11'}, region:{en:'Moon, near side',vi:'Mặt Trăng, mặt gần'}, lat:0.67, lon:23.47, color:'#e2e8f0',
+  why:{en:'The first crewed landing site (1969), on a flat plain of basalt lava. Basalt fields on Earth, such as Idaho, let crews practise on similar rock.',
+       vi:'Nơi con người đáp xuống đầu tiên (1969), trên đồng bằng dung nham bazan phẳng. Các cánh đồng bazan trên Trái Đất như Idaho giúp phi hành đoàn tập trên loại đá tương tự.'},
+  facts:[{k:'landed',t:{en:'20 July 1969',vi:'20/7/1969'}},{k:'crew',t:{en:'Armstrong, Aldrin',vi:'Armstrong, Aldrin'}},{k:'rock',t:{en:'Basalt',vi:'Bazan'}}], ref:'NASA Apollo 11'},
+];
+const PAIR_NAMES = {1:{en:'Canyon',vi:'Hẻm núi'},2:{en:'Shield volcano',vi:'Núi lửa khiên'},3:{en:'Impact crater',vi:'Hố va chạm'},4:{en:'Polar & ice',vi:'Vùng cực & băng'},5:{en:'Dry soil',vi:'Đất khô'},6:{en:'Ancient lake',vi:'Hồ cổ'},7:{en:'Lava plains',vi:'Đồng bằng dung nham'}};
+const FACT_LABEL = {length:{en:'Length',vi:'Chiều dài'},depth:{en:'Depth',vi:'Độ sâu'},width:{en:'Width',vi:'Chiều rộng'},height:{en:'Height',vi:'Độ cao'},diameter:{en:'Diameter',vi:'Đường kính'},age:{en:'Age',vi:'Tuổi'},area:{en:'Area',vi:'Diện tích'},rain:{en:'Rainfall',vi:'Lượng mưa'},temp:{en:'Mean temperature',vi:'Nhiệt độ TB'},type:{en:'Type',vi:'Kiểu'},rock:{en:'Rock',vi:'Đá'},climate:{en:'Climate',vi:'Khí hậu'},project:{en:'Project',vi:'Dự án'},ice:{en:'Ice',vi:'Băng'},soil:{en:'Soil',vi:'Đất'},test:{en:'Tests',vi:'Thử nghiệm'},peak:{en:'Central mound',vi:'Núi giữa hố'},rover:{en:'Rover',vi:'Xe tự hành'},delta:{en:'Delta',vi:'Châu thổ'},lakes:{en:'Lakes',vi:'Hồ'},landed:{en:'Landing',vi:'Ngày đáp'},crew:{en:'Crew',vi:'Phi hành đoàn'}};
+const UNITS = {km:{en:'km',vi:'km'},km2:{en:'km²',vi:'km²'},mmyr:{en:'mm/yr',vi:'mm/năm'},c:{en:'°C',vi:'°C'},myr:{en:'million years',vi:'triệu năm'},kyr:{en:'thousand years',vi:'nghìn năm'}};
+const COMPARABLE = ['length','depth','width','height','diameter'];
+
+/* ================= PHOTOS (Wikimedia Commons, checked CONFIG.imagesCheckedOn) ================= */
+const PHOTOS = {
+ grand:['Grand Canyon view from Pima Point 2010.jpg','Chensiyuan','CC BY-SA 4.0'],
+ valles:['Mars Valles Marineris.jpeg','NASA / USGS','Public domain'],
+ mauna:['Mauna Kea Summit 2021-06-16 33 (cropped).jpg','Leijurv','CC BY-SA 4.0'],
+ olympus:['Olympus Mons.jpg','NASA','Public domain'],
+ meteor:['Meteor Crater.jpg','dbking','CC BY 2.0'],
+ tycho:['LRO WAC Tycho crater mosaic.jpg','NASA/GSFC/Arizona State University','Public domain'],
+ copernicus:['Copernicus crater.jpg','Mtraynier','CC BY-SA 4.0'],
+ haughton:['Rovers Red and Black at Houghton Crater Devon Island Canada.jpg','NASA','Public domain'],
+ shackleton:['Mosaic shackleton crater.jpg','NASA LROC','Public domain'],
+ atacama:['Valle de la Luna, Atacama.jpg','Alex Mazaira','CC BY-SA 3.0'],
+ gale:['Daybreak at Gale Crater PIA14293.jpg','NASA/JPL-Caltech','Public domain'],
+ dryvalley:['Taylor Valley of the McMurdo Dry Valleys.jpg','owamux','CC BY 2.0'],
+ jezero:['Spanning the Delta of Jezero Crater on Mars (PIA25022).jpg','NASA/JPL-Caltech/ASU/MSSS','Public domain'],
+ idaho:['Craters of the Moon National Monument.jpg','Daniel Mayer','CC BY-SA 3.0'],
+ tranquillitatis:['Aldrin Apollo 11 original.jpg','NASA (Neil Armstrong)','Public domain']
+};
+const IMG = (id,w=640) => `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(PHOTOS[id][0])}?width=${w}`;
+const FILE_PAGE = id => `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(PHOTOS[id][0].replace(/ /g,'_'))}`;
+
+/* ================= I18N ================= */
+let lang = 'en';   // English by default for judges; VI via the toggle
+const T = {
+ en:{title:'SMW Planetary Earth Analogues Explorer',sub:'How places on Earth help us understand the Moon & Mars',why:'Why is it an analogue?',tour:'▶ Guided tour',stop:'⏹ Stop tour',start:'Start exploring 🚀',about:'ⓘ About',langBtn:'Tiếng Việt',
+  ititle:'Can Earth help us explore the Moon & Mars?',idesc:'Scientists and astronauts train in extreme places on Earth — canyons, volcanoes, deserts and polar craters — because they resemble sites on Mars and the Moon. This app pairs each site with its Earth "analogue" and uses the numbers to compare them.',
+  s1:'1️⃣ Pick a world',s1d:'Earth, Moon or Mars.',s2:'2️⃣ Pick a site',s2d:'Markers, the list below, or ← → keys.',s3:'3️⃣ Compare',s3d:'Why it matches, scale and gravity.',
+  inote:'Made for the NASA Space Apps Challenge · Guided tour ≈ 1 minute',
+  group:'Group',seePair:'⇄ See analogue',fly:'🎯 Fly to',copy:'📋 Copy',copied:'Copied',hide:'Hide panel',show:'ℹ️ Info',collapse:'Collapse',expand:'Expand',
+  scale:'Scale vs. its analogue',scaleNone:'No directly comparable size for this pair — compare the description instead.',same:'about the same',times:'×',
+  scaleSentence:(a,b,r,lab)=>`${a}: ${r}× the ${lab} of ${b}`,
+  grav:'Gravity check',jumpIn:'Earth jump',massIn:'Load',thG:'g (m/s²)',thJump:'Jump',thFeel:'Feels like',gravNote:'Computed: jump height ∝ 1/g (same take-off speed); felt weight = mass × g / 9.81.',
+  approx:'≈ rounded public values; check the reference before citing.',approxCoord:'approx. centre',
+  imgLoading:'Loading photo…',imgFail:'Photo unavailable (offline?)',photo:'Photo',
+  texLoading:p=>`Loading ${p} map…`,texFail:p=>`⚠ ${p} map could not load — showing a plain colour`,
+  close:'Close',aboutTitle:'About this project'},
+ vi:{title:'SMW Khám phá địa điểm tương đồng hành tinh',sub:'Trái Đất giúp ta hiểu Mặt Trăng và Sao Hỏa như thế nào',why:'Vì sao là địa điểm tương đồng?',tour:'▶ Tour tự động',stop:'⏹ Dừng tour',start:'Bắt đầu khám phá 🚀',about:'ⓘ Giới thiệu',langBtn:'English',
+  ititle:'Trái Đất có giúp ta khám phá Mặt Trăng và Sao Hỏa?',idesc:'Nhà khoa học và phi hành gia tập huấn ở những nơi khắc nghiệt trên Trái Đất — hẻm núi, núi lửa, sa mạc, hố va chạm vùng cực — vì chúng giống các địa điểm trên Sao Hỏa và Mặt Trăng. Ứng dụng ghép mỗi địa điểm với "anh em song sinh" trên Trái Đất và dùng số liệu để so sánh.',
+  s1:'1️⃣ Chọn thiên thể',s1d:'Trái Đất, Mặt Trăng hoặc Sao Hỏa.',s2:'2️⃣ Chọn địa điểm',s2d:'Bấm điểm đánh dấu, danh sách bên dưới hoặc phím ← →.',s3:'3️⃣ So sánh',s3d:'Vì sao giống, kích thước và trọng lực.',
+  inote:'Làm cho NASA Space Apps Challenge · Tour tự động ≈ 1 phút',
+  group:'Nhóm',seePair:'⇄ Xem địa điểm tương đồng',fly:'🎯 Bay tới',copy:'📋 Chép',copied:'Đã chép',hide:'Ẩn bảng',show:'ℹ️ Thông tin',collapse:'Thu gọn',expand:'Mở rộng',
+  scale:'Kích thước so với địa điểm tương đồng',scaleNone:'Cặp này không có kích thước so sánh trực tiếp — hãy so sánh phần mô tả.',same:'gần bằng nhau',times:'×',
+  scaleSentence:(a,b,r,lab)=>`${lab} của ${a} gấp ${r} lần ${b}`,
+  grav:'Thử tính trọng lực',jumpIn:'Nhảy trên Trái Đất',massIn:'Vật nặng',thG:'g (m/s²)',thJump:'Nhảy cao',thFeel:'Cảm giác như',gravNote:'Cách tính: độ cao nhảy tỉ lệ nghịch với g (cùng vận tốc bật); cảm giác nặng = khối lượng × g / 9,81.',
+  approx:'≈ số làm tròn từ nguồn công khai; đối chiếu nguồn trước khi trích dẫn.',approxCoord:'tâm xấp xỉ',
+  imgLoading:'Đang tải ảnh…',imgFail:'Không tải được ảnh (mất mạng?)',photo:'Ảnh',
+  texLoading:p=>`Đang tải bản đồ ${p}…`,texFail:p=>`⚠ Không tải được bản đồ ${p} — đang hiện màu nền`,
+  close:'Đóng',aboutTitle:'Về dự án'}
+};
+const L = o => o[lang];
+const nf = (v,d=2) => new Intl.NumberFormat(lang==='vi'?'vi-VN':'en-US',{maximumFractionDigits:d}).format(v);
+const $ = id => document.getElementById(id);
+
+function aboutHTML(){
+  const ph = Object.entries(PHOTOS).map(([id,p])=>`<li><a class="underline" href="${FILE_PAGE(id)}" target="_blank" rel="noopener">${p[0]}</a> — ${p[1]} · ${p[2]}</li>`).join('');
+  const ch = CONFIG.challenge?`<p><b>${lang==='vi'?'Thử thách':'Challenge'}:</b> ${CONFIG.challenge}${CONFIG.team?' · '+CONFIG.team:''}</p>`:'';
+  if(lang==='vi') return `${ch}
+  <p><b>Vấn đề:</b> Dữ liệu vũ trụ trừu tượng; học sinh không thể chạm vào Mặt Trăng hay Sao Hỏa.</p>
+  <p><b>Đối tượng:</b> học sinh THCS – THPT và giáo viên Khoa học, Địa lí, Vật lí; dùng được trên máy chiếu và điện thoại.</p>
+  <p><b>Giải pháp:</b> 7 nhóm tương đồng, 15 địa điểm. Mỗi địa điểm có lí do tương đồng, ảnh có ghi tác giả, và hai phép tính từ số liệu: (1) so sánh kích thước với địa điểm tương đồng, (2) trọng lực — tỉ lệ g, độ cao nhảy, cảm giác nặng — tính trực tiếp từ g trong NASA Fact Sheet.</p>
+  <p><b>Kiểm tra lần cuối:</b> 13/11/2026. Số liệu được làm tròn để hiển thị giáo dục. <b>Giới hạn:</b> số liệu địa điểm là giá trị làm tròn; áp suất Sao Hỏa là trung bình toàn hành tinh và thay đổi nhiều theo độ cao; bản đồ hành tinh là ảnh độ phân giải thấp để chạy nhẹ.</p>
+  <p><b>Bàn phím:</b> ← → đổi địa điểm · Esc đóng hộp thoại · Tab di chuyển giữa các nút.</p>
+  <h3 class="font-bold mt-2">Nguồn tham khảo & giấy phép</h3>${refsHTML(ph)}`;
+  return `${ch}
+  <p><b>Problem:</b> space data feels abstract; students cannot touch the Moon or Mars.</p>
+  <p><b>Audience:</b> middle- and high-school students (ages 11–18) and their science and geography teachers; works on a classroom projector and on phones.</p>
+  <p><b>Solution:</b> 7 analogue groups, 15 sites. Each site explains why it matches, shows a credited photo, and runs two data calculations: (1) a scale comparison with its analogue and (2) gravity — g ratio, jump height and felt weight — computed directly from g in the NASA Planetary Fact Sheets.</p>
+  <p><b>Last verified:</b> 13 Nov 2026. Data are rounded for educational display. <b>Limitations:</b> site numbers are rounded; Mars pressure is a planet-wide mean that varies strongly with elevation; planet maps are low-resolution images so the app stays light.</p>
+  <p><b>Keyboard:</b> ← → change site · Esc closes dialogs · Tab moves between controls.</p>
+  <h3 class="font-bold mt-2">References & licences</h3>${refsHTML(ph)}`;
+}
+function refsHTML(ph){
+  return `<ul class="list-disc pl-5 text-xs space-y-1">
+   <li>NASA NSSDCA Planetary Fact Sheets — <a class="underline" href="https://nssdc.gsfc.nasa.gov/planetary/factsheet/earthfact.html" target="_blank" rel="noopener">Earth</a>, <a class="underline" href="https://nssdc.gsfc.nasa.gov/planetary/factsheet/moonfact.html" target="_blank" rel="noopener">Moon</a>, <a class="underline" href="https://nssdc.gsfc.nasa.gov/planetary/factsheet/marsfact.html" target="_blank" rel="noopener">Mars</a> (g, diameter, day length, pressure)</li>
+   <li>Site facts: sources named on each site card (USGS, U.S. National Park Service, NASA LRO/LROC, NASA Mars Trek, NASA mission pages)</li>
+   <li>Planet maps: <a class="underline" href="https://github.com/jeromeetienne/threex.planets" target="_blank" rel="noopener">threex.planets</a> texture set (1k) — check the repository for texture credits/licence</li>
+   <li>3D engine: <a class="underline" href="https://threejs.org" target="_blank" rel="noopener">three.js</a> r160 (MIT licence), via unpkg</li>
+   <li>Styling: <a class="underline" href="https://tailwindcss.com" target="_blank" rel="noopener">Tailwind CSS</a> (MIT licence), via cdn.tailwindcss.com</li>
+   <li>Photos (Wikimedia Commons, licences checked ${CONFIG.imagesCheckedOn}):<ul class="list-[circle] pl-5 mt-1 space-y-0.5">${ph}</ul></li>
+  </ul>`;
+}
+
+/* ================= THREE GLOBE ================= */
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const canvas=$('globe-canvas');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(45,1,0.1,100); camera.position.set(0,0.4,3.2);
+const controls=new OrbitControls(camera,renderer.domElement); controls.enableDamping=true; controls.minDistance=1.6; controls.maxDistance=6; controls.enablePan=false;
+controls.enableZoom=true;
+/* Zoom bar: slider value = zoom level. Right / "+" = closer (planet bigger), left / "−" = farther (planet smaller). */
+const ZMIN=1.6, ZMAX=6, zr=$('zoom-range');
+const distToVal=d=>ZMIN+ZMAX-d, valToDist=v=>ZMIN+ZMAX-v;
+let userZoomed=false;
+zr.oninput=()=>{ userZoomed=true; camera.position.setLength(valToDist(+zr.value)); };
+$('zoom-in').onclick=()=>{ zr.value=Math.min(ZMAX,+zr.value+0.25); zr.oninput(); };
+$('zoom-out').onclick=()=>{ zr.value=Math.max(ZMIN,+zr.value-0.25); zr.oninput(); };
+controls.addEventListener('start',()=>{ userZoomed=true; });
+controls.addEventListener('change',()=>{ zr.value=distToVal(camera.position.length()).toFixed(2); });
+zr.value=distToVal(camera.position.length()).toFixed(2);
+scene.add(new THREE.AmbientLight(0xffffff,1.1));
+const sun=new THREE.DirectionalLight(0xffffff,1.6); sun.position.set(5,2,4); scene.add(sun);
+const globe=new THREE.Mesh(new THREE.SphereGeometry(1,96,96),new THREE.MeshStandardMaterial({color:PLANETS.earth.color,roughness:1}));
+scene.add(globe);
+const atmo=new THREE.Mesh(new THREE.SphereGeometry(1.03,64,64),new THREE.ShaderMaterial({vertexShader:`varying vec3 vN;void main(){vN=normalize(normalMatrix*normal);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,fragmentShader:`varying vec3 vN;void main(){float i=pow(.65-dot(vN,vec3(0,0,1.)),2.);gl_FragColor=vec4(.3,.7,1.,1.)*i;}`,blending:THREE.AdditiveBlending,side:THREE.BackSide,transparent:true}));
+scene.add(atmo);
+{const g=new THREE.BufferGeometry(),N=800,p=new Float32Array(N*3);for(let i=0;i<N;i++){const r=20+Math.random()*30,th=Math.random()*Math.PI*2,ph=Math.acos(2*Math.random()-1);p[i*3]=r*Math.sin(ph)*Math.cos(th);p[i*3+1]=r*Math.cos(ph);p[i*3+2]=r*Math.sin(ph)*Math.sin(th);}g.setAttribute('position',new THREE.BufferAttribute(p,3));scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0xffffff,size:.12})));}
+
+const TEX={
+ earth:['https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/earthmap1k.jpg','https://raw.githubusercontent.com/jeromeetienne/threex.planets/master/images/earthmap1k.jpg'],
+ moon:['https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/moonmap1k.jpg','https://raw.githubusercontent.com/jeromeetienne/threex.planets/master/images/moonmap1k.jpg'],
+ mars:['https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/marsmap1k.jpg','https://raw.githubusercontent.com/jeromeetienne/threex.planets/master/images/marsmap1k.jpg']
+};
+const texCache={};
+const loader=new THREE.TextureLoader(); loader.setCrossOrigin('anonymous');
+function toast(msg,ok=false){const el=$('toast');el.textContent=msg;el.style.opacity=1;el.style.background=ok?'rgba(6,182,212,.92)':'rgba(239,68,68,.92)';clearTimeout(el._t);el._t=setTimeout(()=>el.style.opacity=0,3500);}
+let texState={planet:null,status:'idle'};   // status: loading | ok | fail — kept so the warning stays visible and survives a language change
+function showTexStatus(){
+  const el=$('tex-status'), pn=L(PLANET_NAME[texState.planet]||PLANET_NAME.earth);
+  if(texState.status==='loading'){el.textContent=T[lang].texLoading(pn);el.classList.remove('hidden');}
+  else if(texState.status==='fail'){el.textContent=T[lang].texFail(pn);el.classList.remove('hidden');}
+  else el.classList.add('hidden');
+}
+let texToken=0;
+function loadPlanet(p){
+  const my=++texToken;            // ignore late responses from a planet we already left
+  if(texCache[p]){applyTex(texCache[p]);texState={planet:p,status:'ok'};showTexStatus();return;}
+  globe.material.map=null;globe.material.color.set(PLANETS[p].color);globe.material.needsUpdate=true;
+  texState={planet:p,status:'loading'};showTexStatus();
+  const urls=TEX[p]; let i=0;
+  const tryLoad=()=>{
+    if(my!==texToken) return;
+    if(i>=urls.length){ texState={planet:p,status:'fail'};showTexStatus(); return; }
+    loader.load(urls[i],tex=>{tex.colorSpace=THREE.SRGBColorSpace;texCache[p]=tex;if(my!==texToken)return;applyTex(tex);texState={planet:p,status:'ok'};showTexStatus();},
+      undefined,()=>{i++;tryLoad();});
+  }; tryLoad();
+}
+function applyTex(tex){globe.material.map=tex;globe.material.color.set(0xffffff);globe.material.needsUpdate=true;}
+
+function latLonToVec(lat,lon,r=1.01){const phi=(90-lat)*Math.PI/180,theta=(lon+180)*Math.PI/180;return new THREE.Vector3(-r*Math.sin(phi)*Math.cos(theta),r*Math.cos(phi),r*Math.sin(phi)*Math.sin(theta));}
+let currentPlanet='earth', current=SITES[0], tourOn=false, tourIdx=0, tourTimer=null;
+let pauseRotateUntil=0;
+const isPhone=()=>innerWidth<768;
+
+/* keep the globe centred in the free area (not under the panel) */
+const panel=$('panel');
+/* vertical band the planet may use on desktop: between the planet tabs and the Group dock */
+function freeBand(){
+  const nav=$('planet-nav').getBoundingClientRect(), dock=$('twin-nav').getBoundingClientRect();
+  const top=nav.bottom+10, bot=dock.top-26;
+  return {top, bot, A:Math.max(180,bot-top)};
+}
+/* camera distance at which the whole planet fits inside that band */
+function fitDistance(){
+  if(isPhone()) return 4.4;
+  const {A}=freeBand(), R=A/2, tanH=Math.tan(camera.fov*Math.PI/360), rho=1.04;
+  const k=(innerHeight/2)/(R*tanH);
+  return Math.min(ZMAX,Math.max(2.2,rho*Math.sqrt(1+k*k)));
+}
+function updateView(){
+  const w=innerWidth,h=innerHeight;
+  renderer.setSize(w,h,false); camera.aspect=w/h;   // false: keep CSS 100% size, never force the page wider than the screen
+  let ox=0, oy=0;
+  if(!isPhone()){
+    // x: centred on the whole frame (same axis as the tabs and the Group dock);
+    //    only nudged left on narrow windows so the planet does not slide under the info panel
+    const {top,bot,A}=freeBand(), R=A/2;
+    const panelLeft=panel.classList.contains('side-hidden')?w:panel.getBoundingClientRect().left;
+    const leftEdge=($('site-nav')?.getBoundingClientRect().right||0)+8;
+    const over=(w/2+R+12)-panelLeft;
+    ox=Math.max(0,Math.min(over,w/2-R-leftEdge));
+    // y: centred in the free band above the dock
+    if(bot>top+120) oy=h/2-(top+bot)/2;
+  }
+  if(isPhone()){ const sheet=panel.offsetHeight||0; oy=((150+sheet)-110)/2; }
+  if(ox||oy) camera.setViewOffset(w,h,ox,oy,w,h); else camera.clearViewOffset();
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize',()=>{updateView(); if(typeof labelPanelBtn==='function') labelPanelBtn();});
+new ResizeObserver(updateView).observe(panel);
+['planet-nav','twin-nav'].forEach(id=>new ResizeObserver(updateView).observe($(id)));
+addEventListener('load',()=>setTimeout(()=>{ updateView(); if(!isPhone()&&!userZoomed) camera.position.setLength(fitDistance()); },350));
+
+/* ---------- markers (real buttons, keyboard reachable) ---------- */
+const markerDiv=$('markers');
+function renderMarkers(){
+  markerDiv.innerHTML='';
+  SITES.filter(s=>s.planet===currentPlanet).forEach(s=>{
+    const b=document.createElement('button');
+    b.className='marker'+(s.id===current.id?' active':''); b.style.color=s.color;
+    b.setAttribute('aria-label',L(s.name));
+    b.innerHTML=`<span class="lead"></span><span class="dot" style="background:${s.color}"></span><span class="lab">${L(s.name)}</span>`;
+    b.onclick=e=>{e.stopPropagation();stopTour();selectSite(s.id,true);};
+    markerDiv.appendChild(b); s._m=b; s._lw=0; s._li=-1;
+  });
+}
+const _v=new THREE.Vector3(), _c=new THREE.Vector3();
+function updateMarkers(){
+  const w=innerWidth,h=innerHeight, vis=[];
+  _c.copy(camera.position).normalize();
+  SITES.forEach(s=>{
+    if(!s._m||s.planet!==currentPlanet)return;
+    _v.copy(latLonToVec(s.lat,s.lon)).applyMatrix4(globe.matrixWorld);
+    const on=_v.clone().normalize().dot(_c)>0.25;
+    _v.project(camera);
+    const x=(_v.x*0.5+0.5)*w, y=(-_v.y*0.5+0.5)*h;
+    s._m.style.display=on?'block':'none';
+    s._m.style.transform=`translate(${x}px,${y}px)`;
+    if(on) vis.push({s,x,y});
+  });
+  layoutLabels(vis,w,h);
+}
+
+/* ---------- label de-collision ----------
+   Each label tries positions around its dot (top, right, left, bottom, diagonals, then farther out
+   with a thin leader line) and takes the first that does not overlap another label or dot.
+   The active site is placed first; each label prefers its previous spot so labels don't jump while the globe turns. */
+const LAB_GAP=4, DOT_R=10, LAB_OFF=13;
+function labelCandidates(w,h){
+  const c=[
+    [-w/2,-h-LAB_OFF],            // 0 top (default)
+    [LAB_OFF,-h/2],               // 1 right
+    [-w-LAB_OFF,-h/2],            // 2 left
+    [-w/2,LAB_OFF],               // 3 bottom
+    [LAB_OFF-4,-h-LAB_OFF+4],     // 4 top-right
+    [-w-LAB_OFF+4,-h-LAB_OFF+4],  // 5 top-left
+    [LAB_OFF-4,LAB_OFF-4],        // 6 bottom-right
+    [-w-LAB_OFF+4,LAB_OFF-4]      // 7 bottom-left
+  ];
+  for(let k=1;k<=3;k++){          // 8+ farther away -> leader line is drawn
+    const d=k*(h+LAB_GAP+2);
+    c.push([-w/2,-h-LAB_OFF-d],[-w/2,LAB_OFF+d],[LAB_OFF+12*k,-h/2-d],[LAB_OFF+12*k,-h/2+d],[-w-LAB_OFF-12*k,-h/2-d],[-w-LAB_OFF-12*k,-h/2+d]);
+  }
+  return c;
+}
+const ovl=(a,b,g)=>Math.max(0,Math.min(a.x+a.w+g,b.x+b.w)-Math.max(a.x-g,b.x))*Math.max(0,Math.min(a.y+a.h+g,b.y+b.h)-Math.max(a.y-g,b.y));
+function layoutLabels(list,W,H){
+  if(!list.length) return;
+  list.forEach(o=>{
+    const lab=o.s._m.querySelector('.lab');
+    if(!o.s._lw){ o.s._lw=lab.offsetWidth; o.s._lh=lab.offsetHeight; }
+    o.lab=lab;
+  });
+  const dots=list.map(o=>({x:o.x-DOT_R,y:o.y-DOT_R,w:DOT_R*2,h:DOT_R*2,s:o.s}));
+  const placed=[];
+  list.sort((a,b)=>((b.s===current)-(a.s===current))||(a.y-b.y));
+  list.forEach(o=>{
+    const lw=o.s._lw, lh=o.s._lh, cand=labelCandidates(lw,lh);
+    const order=[...cand.keys()];
+    if(o.s._li>=0&&o.s._li<cand.length){ order.splice(order.indexOf(o.s._li),1); order.unshift(o.s._li); }
+    let best=-1, bestScore=Infinity;
+    for(const i of order){
+      const r={x:o.x+cand[i][0],y:o.y+cand[i][1],w:lw,h:lh};
+      let sc=0;
+      placed.forEach(p=>sc+=ovl(r,p,LAB_GAP));
+      dots.forEach(d=>{ if(d.s!==o.s) sc+=ovl(r,d,2)*2; });
+      if(r.x<4) sc+=(4-r.x)*lh; if(r.x+lw>W-4) sc+=(r.x+lw-W+4)*lh;   // keep inside the screen
+      if(r.y<4) sc+=(4-r.y)*lw; if(r.y+lh>H-4) sc+=(r.y+lh-H+4)*lw;
+      if(i>=8) sc+=1;                                                // small cost for being far away
+      if(sc<bestScore){ bestScore=sc; best=i; }
+      if(sc===0) break;
+    }
+    o.s._li=best;
+    const [dx,dy]=cand[best];
+    placed.push({x:o.x+dx,y:o.y+dy,w:lw,h:lh});
+    o.lab.style.transform=`translate(${14+dx}px,${14+dy}px)`;
+    o.s._m.style.zIndex=o.s===current?23:(best>=8?21:20);
+    // leader line from the dot to the nearest edge of a far label
+    const lead=o.s._m.querySelector('.lead');
+    if(best>=8){
+      const tx=Math.max(dx,Math.min(0,dx+lw)), ty=Math.max(dy,Math.min(0,dy+lh));
+      const len=Math.hypot(tx,ty), ang=Math.atan2(ty,tx);
+      lead.style.display='block'; lead.style.width=`${Math.max(0,len-6)}px`;
+      lead.style.transform=`rotate(${ang}rad) translateX(6px)`;
+    } else lead.style.display='none';
+  });
+}
+
+/* ---------- cards: built ONCE, then only updated (no image reloads) ---------- */
+function loadImg(img,msgEl,id,w){
+  img.classList.remove('loaded'); if(msgEl){msgEl.textContent=T[lang].imgLoading;msgEl.style.display='flex';}
+  img.onload=()=>{img.classList.add('loaded'); if(msgEl) msgEl.style.display='none';};
+  img.onerror=()=>{img.removeAttribute('src'); if(msgEl){msgEl.textContent=T[lang].imgFail;msgEl.dataset.fail='1';}};
+  if(msgEl) delete msgEl.dataset.fail;
+  img.src=IMG(id,w);
+}
+function buildCards(){
+  const box=$('cards'); box.innerHTML='';
+  SITES.forEach(s=>{
+    const b=document.createElement('button'); b.setAttribute('role','listitem'); b.className='site-card shrink-0 text-left rounded-2xl px-2 py-1.5 w-[150px] border'; b.dataset.id=s.id;
+    b.innerHTML=`<div class="c-info"><div class="c-tag text-[10px] font-bold ${s.planet==='earth'?'text-sky-300':s.planet==='moon'?'text-gray-200':'text-red-300'}"></div><div class="c-name text-xs font-black truncate"></div></div>`;
+    b.onclick=()=>{stopTour();selectSite(s.id,true);}; box.appendChild(b); s._card=b;
+  });
+}
+function buildTwinBar(){
+  const box=$('twin-cards'); box.innerHTML=''; const mates=pairMembers(current);
+  $('twin-count').textContent=`${mates.length} sites`;
+  mates.forEach(s=>{const b=document.createElement('button'); b.className='twin-card text-left'; b.dataset.id=s.id;
+    b.innerHTML=`<div class="twin-thumb"><div class="img-msg"></div><img alt="" loading="lazy" referrerpolicy="no-referrer"></div><div class="min-w-0"><div class="twin-name"></div><div class="twin-planet"></div></div>`;
+    b.querySelector('.twin-name').textContent=L(s.name); b.querySelector('.twin-planet').textContent=`${PLANET_ICON[s.planet]} ${L(PLANET_NAME[s.planet])}`;
+    loadImg(b.querySelector('img'),b.querySelector('.img-msg'),s.id,240); b.onclick=()=>{stopTour();selectSite(s.id,true);}; box.appendChild(b); s._twinCard=b;
+  });
+}
+function updateTwinBar(){
+  $('twin-label').textContent=`${T[lang].group} ${current.pair} · ${L(PAIR_NAMES[current.pair])}`; buildTwinBar();
+  pairMembers(current).forEach(s=>s._twinCard?.classList.toggle('active',s.id===current.id));
+}
+
+function updateCards(){
+  SITES.forEach(s=>{
+    const b=s._card, on=s.id===current.id;
+    b.classList.toggle('bg-cyan-400/20',on); b.classList.toggle('border-cyan-300',on);
+    b.classList.toggle('bg-black/60',!on); b.classList.toggle('border-white/10',!on);
+    b.setAttribute('aria-current',on?'true':'false');
+    b.querySelector('.c-tag').textContent=`${PLANET_ICON[s.planet]} ${L(PLANET_NAME[s.planet])} · ${L(PAIR_NAMES[s.pair])}`;
+    b.querySelector('.c-name').textContent=L(s.name);
+    b.setAttribute('aria-label',`${L(s.name)} — ${L(PLANET_NAME[s.planet])}, ${L(PAIR_NAMES[s.pair])}`);
+  });
+  updateTwinBar();
+}
+
+/* ---------- formatting ---------- */
+function fmtCoords(lat,lon){
+  const lo=((lon+540)%360)-180;
+  return `${nf(Math.abs(lat),2)}° ${lat>=0?'N':'S'}, ${nf(Math.abs(lo),2)}° ${lo>=0?'E':'W'}`;
+}
+function fmtFact(f){
+  if(f.t) return L(f.t);
+  return `${f.a?'≈ ':''}${nf(f.v)} ${L(UNITS[f.u])}`;
+}
+function factCell(label,value,note,span){
+  return `<div class="rounded-lg bg-white/5 p-2${span?' col-span-2':''}"><div class="text-[10px] text-gray-400">${label}</div><div class="font-bold">${value}</div>${note?`<div class="text-[10px] text-gray-400">${note}</div>`:''}</div>`;
+}
+const pairMembers = s => SITES.filter(x=>x.pair===s.pair);
+
+/* ---------- panel ---------- */
+let shownImgFor=null;
+function renderPanel(){
+  const s=current, pl=PLANETS[s.planet], t=T[lang];
+  $('p-pair').textContent=`${t.group} ${s.pair} · ${L(PAIR_NAMES[s.pair])}`;
+  $('p-planet').textContent=`${PLANET_ICON[s.planet]} ${L(PLANET_NAME[s.planet])}`;
+  $('p-name').textContent=L(s.name);
+  $('p-loc').textContent=L(s.region);
+  const img=$('p-img'), msg=$('p-img-msg');
+  if(shownImgFor!==s.id){ loadImg(img,msg,s.id,640); shownImgFor=s.id; }
+  else if(msg.style.display!=='none') msg.textContent=msg.dataset.fail?t.imgFail:t.imgLoading;
+  img.alt=`${t.photo}: ${L(s.name)}`;
+  const ph=PHOTOS[s.id];
+  $('p-credit').innerHTML=`📷 <a class="underline" href="${FILE_PAGE(s.id)}" target="_blank" rel="noopener">${ph[1]}</a> · ${ph[2]} · Wikimedia Commons`;
+  $('p-coords').textContent=`📍 ${fmtCoords(s.lat,s.lon)}${s.approxCoord?` (${t.approxCoord})`:''}`;
+  $('p-why').textContent=L(s.why);
+  $('p-facts').innerHTML = s.facts.map(f=>factCell(L(FACT_LABEL[f.k]),fmtFact(f),f.n?L(f.n):'')).join('') +
+     factCell(`🛰 ${L(PLANET_NAME[s.planet])} — ${lang==='vi'?'đường kính TB · ngày · áp suất':'mean diameter · day · pressure'}`,
+              `${nf(pl.diameter,0)} km · ${L(pl.day)} · ${L(pl.pressure)}`, 'NASA Planetary Fact Sheet', true);
+  $('p-approx').textContent=t.approx;
+  $('p-ref').textContent=s.ref;
+  renderScale(); renderGravity();
+}
+function renderScale(){
+  const t=T[lang], s=current;
+  const mates=pairMembers(s).filter(x=>x.id!==s.id);
+  let html='';
+  mates.forEach(m=>{
+    COMPARABLE.forEach(k=>{
+      const a=s.facts.find(f=>f.k===k&&f.v!=null), b=m.facts.find(f=>f.k===k&&f.v!=null);
+      if(!a||!b||a.u!==b.u) return;
+      const big=Math.max(a.v,b.v), r=a.v/b.v;
+      const lab=L(FACT_LABEL[k]).toLowerCase();
+      const R=Math.max(r,1/r), bigN=r>=1?L(s.name):L(m.name), smallN=r>=1?L(m.name):L(s.name);
+      let sentence = (R<1.2) ? `${L(s.name)} ≈ ${L(m.name)} (${lab}: ${t.same})` : t.scaleSentence(bigN,smallN,nf(R,R<10?1:0),lab);
+      sentence = sentence.charAt(0).toUpperCase()+sentence.slice(1);
+      html+=`<div><div class="mb-1">${sentence}</div>
+        <div class="flex items-center gap-2"><span class="w-20 truncate text-gray-300">${L(s.name)}</span><div class="flex-1"><div class="bar" style="width:${a.v/big*100}%;background:${s.color}"></div></div><span class="w-16 text-right font-mono">${nf(a.v)} ${L(UNITS[a.u])}</span></div>
+        <div class="flex items-center gap-2 mt-1"><span class="w-20 truncate text-gray-300">${L(m.name)}</span><div class="flex-1"><div class="bar" style="width:${b.v/big*100}%;background:${m.color}"></div></div><span class="w-16 text-right font-mono">${nf(b.v)} ${L(UNITS[b.u])}</span></div></div>`;
+    });
+  });
+  $('p-scale').innerHTML = html || `<p class="text-gray-400">${t.scaleNone}</p>`;
+}
+function renderGravity(){
+  const jump=Math.max(0,+$('in-jump').value||0), mass=Math.max(0,+$('in-mass').value||0);
+  $('grav-rows').innerHTML=['earth','moon','mars'].map(p=>{
+    const g=PLANETS[p].g, on=p===current.planet;
+    return `<tr class="${on?'text-cyan-200 font-bold':''}"><td>${PLANET_ICON[p]} ${L(PLANET_NAME[p])}</td><td class="text-right">${nf(g)} (${nf(g/G_EARTH*100,0)}%)</td><td class="text-right">${nf(jump*G_EARTH/g,0)} cm</td><td class="text-right">${nf(mass*g/G_EARTH,1)} kg</td></tr>`;
+  }).join('');
+}
+$('in-jump').oninput=renderGravity; $('in-mass').oninput=renderGravity;
+
+function selectSite(id,fly){
+  current=SITES.find(s=>s.id===id)||SITES[0];
+  if(current.planet!==currentPlanet) switchPlanet(current.planet,true);
+  else markerDiv.querySelectorAll('.marker').forEach(m=>m.classList.toggle('active',m.getAttribute('aria-label')===L(current.name)));
+  renderPanel(); updateCards();
+  current._card?.scrollIntoView({behavior:reduceMotion?'auto':'smooth',inline:'center',block:'nearest'});
+  pauseRotateUntil=performance.now()+20000;
+  if(fly) flyTo(current.lat,current.lon);
+}
+
+/* ---------- camera fly: arcs around the globe (no flying through it), aims at the ROTATED globe ---------- */
+let flyAnim=null;
+function cancelFly(){ if(flyAnim){cancelAnimationFrame(flyAnim);flyAnim=null;} }
+function flyTo(lat,lon){
+  cancelFly();
+  const camLat=Math.max(-70,Math.min(70,lat));                 // look at polar sites obliquely
+  const endDir=latLonToVec(camLat,lon,1).applyQuaternion(globe.quaternion).normalize();
+  const startDir=camera.position.clone().normalize();
+  const d0=camera.position.length(), d1=isPhone()?4.4:Math.max(3.0,fitDistance());
+  const q=new THREE.Quaternion().setFromUnitVectors(startDir,endDir), qi=new THREE.Quaternion();
+  if(reduceMotion){camera.position.copy(endDir.multiplyScalar(d1));return;}
+  const t0=performance.now();
+  const step=t=>{
+    const k=Math.min(1,(t-t0)/1200), e=1-Math.pow(1-k,3);
+    qi.identity().slerp(q,e);
+    camera.position.copy(startDir).applyQuaternion(qi).multiplyScalar(d0+(d1-d0)*e);
+    flyAnim = k<1 ? requestAnimationFrame(step) : null;
+  };
+  flyAnim=requestAnimationFrame(step);
+}
+controls.addEventListener('start',()=>{cancelFly();pauseRotateUntil=performance.now()+20000;});
+
+function switchPlanet(p,silent){
+  cancelFly();                                   // never keep flying toward a site of the previous planet
+  currentPlanet=p;
+  document.querySelectorAll('.planet-btn').forEach(b=>{
+    const on=b.dataset.planet===p;
+    b.setAttribute('aria-pressed',on?'true':'false');
+    b.classList.remove('bg-blue-500','bg-gray-200','text-black','bg-red-500','text-gray-300');
+    if(on) b.classList.add(...(p==='earth'?['bg-blue-500']:p==='moon'?['bg-gray-200','text-black']:['bg-red-500']));
+    else b.classList.add('text-gray-300');
+  });
+  atmo.visible = p==='earth';
+  loadPlanet(p); renderMarkers();
+  if(!silent){const first=SITES.find(s=>s.planet===p); if(first) selectSite(first.id,false);}
+}
+document.querySelectorAll('.planet-btn').forEach(b=>b.onclick=()=>{stopTour();switchPlanet(b.dataset.planet);});
+$('btn-pair').onclick=()=>{
+  stopTour();
+  const m=pairMembers(current), i=m.findIndex(x=>x.id===current.id);
+  if(m.length>1) selectSite(m[(i+1)%m.length].id,true);
+};
+$('btn-fly').onclick=()=>flyTo(current.lat,current.lon);
+
+/* ---------- tour ---------- */
+const tourOrder=['grand','valles','mauna','olympus','meteor','tycho','copernicus','haughton','shackleton','atacama','gale','dryvalley','jezero','idaho','tranquillitatis'];
+function startTour(){
+  tourOn=true; $('btn-tour').textContent=T[lang].stop;
+  closeIntro();
+  tourIdx=Math.max(0,tourOrder.indexOf(current.id));
+  const step=()=>{ if(!tourOn)return; selectSite(tourOrder[tourIdx],true); tourIdx=(tourIdx+1)%tourOrder.length; tourTimer=setTimeout(step,4500); };
+  step();
+}
+function stopTour(){if(!tourOn)return;tourOn=false;clearTimeout(tourTimer);$('btn-tour').textContent=T[lang].tour;}
+$('btn-tour').onclick=()=>tourOn?stopTour():startTour();
+
+/* ---------- panel hide (desktop) / collapse (phone) ---------- */
+function setPanelOpen(open){
+  if(isPhone()){ panel.classList.toggle('collapsed',!open); panel.classList.remove('side-hidden'); $('btn-show-panel').classList.add('hidden'); }
+  else { panel.classList.toggle('side-hidden',!open); panel.classList.remove('collapsed'); $('btn-show-panel').classList.toggle('hidden',open); if(open) panel.removeAttribute('inert'); else panel.setAttribute('inert',''); }
+  $('btn-hide-panel').setAttribute('aria-expanded',open?'true':'false');
+  labelPanelBtn(); setTimeout(updateView,320);
+}
+function panelIsOpen(){ return isPhone()? !panel.classList.contains('collapsed') : !panel.classList.contains('side-hidden'); }
+function labelPanelBtn(){
+  const open=panelIsOpen(), t=T[lang], b=$('btn-hide-panel');
+  b.textContent = isPhone() ? (open?'▾':'▴') : '›';
+  b.title = isPhone() ? (open?t.collapse:t.expand) : t.hide;
+  b.setAttribute('aria-label',b.title);
+}
+$('btn-hide-panel').onclick=()=>setPanelOpen(!panelIsOpen());
+$('btn-show-panel').onclick=()=>setPanelOpen(true);
+$('btn-copy-coords').onclick=()=>{
+  const s=fmtCoords(current.lat,current.lon);
+  navigator.clipboard?.writeText(`${L(current.name)} — ${s}`).then(()=>toast(`${T[lang].copied}: ${s}`,true)).catch(()=>toast(s,true));
+};
+
+/* ---------- dialogs ---------- */
+let lastFocus=null;
+function closeIntro(){ $('intro').style.display='none'; }
+$('btn-start').onclick=()=>{closeIntro(); $('btn-tour').focus();};
+function openAbout(){ lastFocus=document.activeElement; $('a-body').innerHTML=aboutHTML(); const a=$('about'); a.classList.remove('hidden'); a.classList.add('flex'); $('btn-close-about').focus(); }
+function closeAbout(){ const a=$('about'); a.classList.add('hidden'); a.classList.remove('flex'); lastFocus?.focus(); }
+$('btn-about').onclick=openAbout; $('btn-close-about').onclick=closeAbout;
+$('btn-lang').onclick=()=>{lang=lang==='en'?'vi':'en';applyLang();};
+
+addEventListener('keydown',e=>{
+  if(e.key==='Escape'){ if(!gm.classList.contains('hidden')){ gClose(); return; } if(!$('about').classList.contains('hidden')) closeAbout(); else if($('intro').style.display!=='none') closeIntro(); return; }
+  if(['INPUT','TEXTAREA'].includes(document.activeElement?.tagName)) return;
+  if(e.key==='ArrowRight'||e.key==='ArrowLeft'){
+    if(!$('about').classList.contains('hidden')||!gm.classList.contains('hidden')||$('intro').style.display!=='none') return;
+    stopTour();
+    const i=tourOrder.indexOf(current.id), n=tourOrder.length;
+    selectSite(tourOrder[(i+(e.key==='ArrowRight'?1:n-1))%n],true);
+    e.preventDefault();
+  }
+});
+
+/* ---------- language: update text only (no image reloads, no camera jump) ---------- */
+function applyLang(){
+  const t=T[lang];
+  document.documentElement.lang=lang;
+  $('t-title').textContent=t.title; $('t-subtitle').textContent=t.sub;
+  $('t-why').textContent=t.why;
+  $('btn-tour').textContent=tourOn?t.stop:t.tour;
+  $('btn-about').textContent=t.about;
+  const lb=$('btn-lang'); lb.textContent=t.langBtn; lb.setAttribute('lang',lang==='en'?'vi':'en');
+  $('i-title').textContent=t.ititle; $('i-desc').textContent=t.idesc; $('i-note').textContent=t.inote; $('btn-start').textContent=t.start;
+  ['s1','s1d','s2','s2d','s3','s3d'].forEach(k=>$('i-'+k).textContent=t[k]);
+  $('btn-pair').textContent=t.seePair; $('btn-fly').textContent=t.fly; $('btn-copy-coords').textContent=t.copy;
+  $('btn-show-panel').textContent=t.show;
+  $('t-scale').textContent=t.scale; $('t-grav').textContent=t.grav; $('t-jump-in').textContent=t.jumpIn; $('t-mass-in').textContent=t.massIn;
+  $('th-g').textContent=t.thG; $('th-jump').textContent=t.thJump; $('th-feel').textContent=t.thFeel; $('t-grav-note').textContent=t.gravNote;
+  $('a-title').textContent=t.aboutTitle; $('btn-close-about').textContent=t.close;
+  if(!$('about').classList.contains('hidden')) $('a-body').innerHTML=aboutHTML();
+  $('planet-nav').setAttribute('aria-label',lang==='vi'?'Chọn thiên thể':'Choose a world');
+  document.querySelectorAll('.planet-btn').forEach(b=>b.textContent=`${PLANET_ICON[b.dataset.planet]} ${L(PLANET_NAME[b.dataset.planet])}`);
+  markerDiv.querySelectorAll('.marker').forEach(m=>{const s=SITES.find(x=>x._m===m); if(s){m.setAttribute('aria-label',L(s.name)); m.querySelector('.lab').textContent=L(s.name); s._lw=0;}});
+  updateCards(); renderPanel(); labelPanelBtn(); showTexStatus(); gameLang(); advLang();
+}
+
+/* ---------- loop ---------- */
+function animate(){
+  requestAnimationFrame(animate);
+  if(!tourOn && !reduceMotion && !flyAnim && performance.now()>pauseRotateUntil) globe.rotation.y+=0.0012;
+  controls.update(); globe.updateMatrixWorld(); updateMarkers(); renderer.render(scene,camera);
+}
+
+/* ================= GAME: Mission — Train on Earth ================= */
+const GT={
+ en:{btn:'🎮 Play',title:'Mission: Train on Earth',intro:'Space agencies train astronauts and test rovers on Earth before they ever leave. Can you pick the right training ground for each mission — and beat gravity? 8 quick rounds.',go:'Start mission 🚀',best:'Best',round:'Round',hint:'💡 Hint (−50)',hintTxt:g=>`Hint: this is a “${g}” site.`,next:'Next ▶',finish:'See result 🏁',
+  qMatch:'Where on Earth would crews train for this?',qGrav:(j,p)=>`You jump ${j} cm on Earth. How high would you jump on ${p==='Moon'?'the Moon':p}?`,ok:'Correct! ',no:'Not quite. ',
+  gcalc:(p,g,j,r)=>`${p}: g = ${g} m/s², so ${j} × 9.81 ÷ ${g} ≈ ${r} cm. Weaker gravity = higher jump.`,end:'Mission complete',ranks:['Rookie','Trainee','Astronaut','Mission Commander'],
+  impact:'Why it matters: every place you just matched is real, fragile and open to science. What crews practise there — saving water, running on sunlight, working in harsh soil and cold — can help people on Earth too. The more people understand, the more people care about exploring space and protecting Earth.',
+  share:'📤 Challenge a friend',again:'↻ Play again',copied:'Challenge copied — paste it to a friend!',shareTxt:(n,s)=>`I scored ${n}/8 (${s} pts) in “Mission: Train on Earth” — can you beat me?`},
+ vi:{btn:'🎮 Chơi',title:'Nhiệm vụ: Huấn luyện trên Trái Đất',intro:'Các cơ quan vũ trụ luôn cho phi hành gia tập luyện và thử xe tự hành trên Trái Đất trước khi rời đi. Bạn có chọn đúng "thao trường" cho từng nhiệm vụ và thắng được trọng lực không? 8 vòng nhanh.',go:'Bắt đầu nhiệm vụ 🚀',best:'Kỷ lục',round:'Vòng',hint:'💡 Gợi ý (−50)',hintTxt:g=>`Gợi ý: đây là địa điểm thuộc nhóm “${g}”.`,next:'Tiếp ▶',finish:'Xem kết quả 🏁',
+  qMatch:'Phi hành đoàn sẽ tập luyện ở đâu trên Trái Đất?',qGrav:(j,p)=>`Bạn nhảy cao ${j} cm trên Trái Đất. Trên ${p} bạn nhảy cao bao nhiêu?`,ok:'Chính xác! ',no:'Chưa đúng. ',
+  gcalc:(p,g,j,r)=>`${p}: g = ${g} m/s², nên ${j} × 9,81 ÷ ${g} ≈ ${r} cm. Trọng lực càng yếu, nhảy càng cao.`,end:'Hoàn thành nhiệm vụ',ranks:['Tân binh','Học viên','Phi hành gia','Chỉ huy sứ mệnh'],
+  impact:'Vì sao quan trọng: mỗi địa điểm bạn vừa ghép đều có thật, mong manh và mở ra cho khoa học. Những gì phi hành đoàn luyện tập ở đó — tiết kiệm nước, dùng năng lượng mặt trời, làm việc trên đất khắc nghiệt và giá lạnh — cũng có thể giúp con người trên Trái Đất. Càng nhiều người hiểu, càng nhiều người quan tâm đến việc khám phá vũ trụ và bảo vệ Trái Đất.',
+  share:'📤 Thách bạn bè',again:'↻ Chơi lại',copied:'Đã chép lời thách đấu — gửi cho bạn bè nhé!',shareTxt:(n,s)=>`Mình đạt ${n}/8 (${s} điểm) trong “Nhiệm vụ: Huấn luyện trên Trái Đất” — bạn có hơn được mình không?`}
+};
+const gm=$('game'), gb=$('g-body'); let gs=null;
+const shuf=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]];}return a;};
+function gBuild(){
+  const earth=SITES.filter(s=>s.planet==='earth'), qs=[];
+  shuf(SITES.filter(s=>s.planet!=='earth')).slice(0,5).forEach(t=>{
+    const c=earth.find(e=>e.pair===t.pair), w=shuf(earth.filter(e=>e.pair!==t.pair)).slice(0,2);
+    qs.push({k:'m',t,c,o:shuf([c,...w])});
+  });
+  ['moon','mars','moon'].forEach(p=>{
+    const j=[40,50,60,80][Math.random()*4|0], g=PLANETS[p].g, r=Math.round(j*G_EARTH/g);
+    qs.push({k:'g',p,j,r,o:shuf([r,j,Math.round(j*g/G_EARTH)])});
+  });
+  return shuf(qs);
+}
+function gRender(){
+  const t=GT[lang]; gm.setAttribute('aria-label',t.title);
+  if(!gs){
+    let b=0; try{b=+localStorage.getItem('smwBest')||0;}catch(e){}
+    gb.innerHTML=`<div class="text-center pt-2"><div class="text-5xl" aria-hidden="true">🚀🌍🔴</div><h2 class="text-2xl font-black mt-2">${t.title}</h2><p class="text-sm text-gray-200 mt-3 leading-relaxed">${t.intro}</p>${b?`<p class="text-xs text-amber-300 mt-2">🏆 ${t.best}: ${b}/8</p>`:''}<button data-g="start" class="mt-5 w-full bg-cyan-400 hover:bg-cyan-300 text-black font-black py-3 rounded-2xl text-lg">${t.go}</button></div>`;
+    gb.querySelector('[data-g=start]').focus(); return;
+  }
+  if(gs.i>=gs.q.length) return gEnd(t);
+  const q=gs.q[gs.i], a=gs.ans, done=a!=null, last=gs.i===gs.q.length-1;
+  const oc=(v,right)=>!done?'bg-white/10 hover:bg-white/20 border-white/20':right?'bg-emerald-500/30 border-emerald-300':String(v)===String(a)?'bg-rose-500/30 border-rose-300':'bg-white/5 border-white/10 opacity-60';
+  let h=`<div class="flex items-center justify-between text-xs pr-10"><span>${t.round} ${gs.i+1}/${gs.q.length}</span><span class="text-amber-300 font-bold">⭐ ${gs.sc}${gs.st>1?` · 🔥×${gs.st}`:''}</span></div><div class="h-1.5 bg-white/10 rounded mt-2"><div class="h-1.5 bg-cyan-400 rounded" style="width:${gs.i/gs.q.length*100}%"></div></div>`;
+  if(q.k==='m'){
+    h+=`<div class="mt-4 rounded-2xl bg-white/5 border border-white/10 p-3"><div class="font-black text-lg" style="color:${q.t.color}">${PLANET_ICON[q.t.planet]} ${L(q.t.name)}</div><div class="text-xs text-gray-300">${L(q.t.region)} · ${q.t.facts.map(f=>`${L(FACT_LABEL[f.k])}: ${fmtFact(f)}`).join(' · ')}</div>${gs.h?`<div class="text-xs text-amber-300 mt-1">${t.hintTxt(L(PAIR_NAMES[q.t.pair]))}</div>`:''}</div>
+    <h3 class="font-bold mt-3 text-sm">${t.qMatch}</h3><div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">`+
+    q.o.map(e=>`<button data-g="a" data-v="${e.id}" ${done?'disabled':''} class="border rounded-2xl p-2 text-left ${oc(e.id,e.id===q.c.id)}"><div class="h-20 rounded-lg overflow-hidden bg-[#0b0b1f]"><img src="${IMG(e.id,320)}" alt="" referrerpolicy="no-referrer" class="w-full h-full object-cover" onerror="this.remove()"></div><div class="text-xs font-black mt-1">${L(e.name)}</div><div class="text-[10px] text-gray-300">${L(e.region)}</div></button>`).join('')+`</div>`;
+    if(!done&&!gs.h) h+=`<button data-g="hint" class="mt-3 text-xs font-bold px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20">${t.hint}</button>`;
+  } else {
+    h+=`<div class="mt-4 text-center text-5xl" aria-hidden="true">${PLANET_ICON[q.p]}</div><h3 class="font-bold mt-2 text-center">${t.qGrav(q.j,L(PLANET_NAME[q.p]))}</h3><div class="grid grid-cols-3 gap-2 mt-3">`+
+    q.o.map(v=>`<button data-g="a" data-v="${v}" ${done?'disabled':''} class="border rounded-2xl py-4 text-lg font-black ${oc(v,v===q.r)}">${nf(v,0)} cm</button>`).join('')+`</div>`;
+  }
+  if(done){
+    const exp=q.k==='m'?`<b>${L(q.c.name)}</b> — ${L(q.c.why)}`:t.gcalc(L(PLANET_NAME[q.p]),nf(PLANETS[q.p].g),q.j,nf(q.r,0));
+    h+=`<div role="status" class="mt-3 rounded-xl p-3 text-xs leading-relaxed ${gs.right?'bg-emerald-500/15 border border-emerald-300/40':'bg-rose-500/15 border border-rose-300/40'}"><b>${gs.right?t.ok:t.no}</b>${exp}</div><button data-g="next" class="mt-3 w-full bg-cyan-400 hover:bg-cyan-300 text-black font-black py-2.5 rounded-xl">${last?t.finish:t.next}</button>`;
+  }
+  gb.innerHTML=h;
+  if(done) gb.querySelector('[data-g=next]').focus();
+}
+function gEnd(t){
+  const r=gs.ok>=7?3:gs.ok>=5?2:gs.ok>=3?1:0;
+  try{ if(gs.ok>(+localStorage.getItem('smwBest')||0)) localStorage.setItem('smwBest',gs.ok); }catch(e){}
+  gb.innerHTML=`<div class="text-center pt-2"><div class="text-5xl" aria-hidden="true">${['🌱','🔭','👩‍🚀','🏅'][r]}</div><p class="text-xs text-cyan-200 mt-2">${t.end}</p><h2 class="text-2xl font-black">${t.ranks[r]}</h2><p class="text-3xl font-black mt-2">${gs.ok}/${gs.q.length} · ⭐ ${gs.sc}</p>
+  <p class="text-xs text-gray-200 mt-4 leading-relaxed rounded-xl bg-cyan-400/10 border border-cyan-300/20 p-3 text-left">${t.impact}</p>
+  <div class="flex gap-2 mt-4"><button data-g="share" class="flex-1 bg-violet-500 hover:bg-violet-400 font-bold text-sm py-2.5 rounded-xl">${t.share}</button><button data-g="start" class="flex-1 bg-white/10 hover:bg-white/20 font-bold text-sm py-2.5 rounded-xl">${t.again}</button></div></div>`;
+  gb.querySelector('[data-g=share]').focus();
+}
+async function gShare(){
+  const t=GT[lang], txt=t.shareTxt(gs.ok,gs.sc);
+  try{ if(navigator.share){ await navigator.share({title:t.title,text:txt,url:location.href}); return; } }catch(e){ if(e&&e.name==='AbortError') return; }
+  try{ await navigator.clipboard.writeText(txt+' '+location.href); toast(t.copied,true); }catch(e){ toast(txt,true); }
+}
+let gFocus=null;
+function openGame(){ stopTour(); gFocus=document.activeElement; gs=null; gm.classList.remove('hidden'); gm.classList.add('flex'); gRender(); }
+function gClose(){ gm.classList.add('hidden'); gm.classList.remove('flex'); gFocus?.focus(); }
+gm.addEventListener('click',e=>{
+  const b=e.target.closest('[data-g]'); if(!b) return; const a=b.dataset.g;
+  if(a==='close') gClose();
+  else if(a==='start'){ gs={q:gBuild(),i:0,sc:0,ok:0,st:0,h:false,ans:null,right:false}; gRender(); }
+  else if(a==='hint'){ gs.h=true; gs.sc=Math.max(0,gs.sc-50); gRender(); }
+  else if(a==='a'&&gs.ans==null){
+    const q=gs.q[gs.i]; gs.ans=b.dataset.v; gs.right=q.k==='m'?b.dataset.v===q.c.id:+b.dataset.v===q.r;
+    if(gs.right){ gs.st++; gs.ok++; gs.sc+=100+Math.min(gs.st-1,3)*20; } else gs.st=0;
+    gRender();
+  }
+  else if(a==='next'){ gs.i++; gs.ans=null; gs.h=false; gRender(); }
+  else if(a==='share') gShare();
+});
+gm.addEventListener('mousedown',e=>{ if(e.target===gm) gClose(); });
+$('btn-game').onclick=openGame;
+function gameLang(){ $('btn-game').textContent=GT[lang].btn; if(!gm.classList.contains('hidden')) gRender(); }
+
+
+/* ================= ADVENTURE: Space Runner (platformer) ================= */
+const AT={
+en:{btn:'🕹️ Adventure',title:'Space Runner',name:'Nickname',suit:'Suit colour',face:'Visor colour',go:'Launch 🚀',keys:'← → move · ↑ / Space jump · Shift sprint · stomp bugs from above',tip:'Grab 🪙 points, ❤️ hearts, ⚡ stamina. Gravity changes on the Moon and Mars!',left:'To goal',help:'A crew member needs help!',find:'Find this place on the map:',wrong:'Not this one — try again',pit:'You fell into a pit!',pitA:'❓ Answer a question to keep your points',pitB:'Skip: lose 150 points',win:'You reached the goal! 🏁',over:'Game over',again:'↻ Play again',share:'📤 Share',copied:'Copied!',cont:'Continue ▶',found:'Location found! +100',q1:'Question 1/2 · Map',q2:'Question 2/2 · Fact',reward:'+100 points and +1 ❤️!'},
+vi:{btn:'🕹️ Phiêu lưu',title:'Space Runner',name:'Biệt danh',suit:'Màu trang phục',face:'Màu kính mũ',go:'Xuất phát 🚀',keys:'← → di chuyển · ↑ / Space nhảy · Shift chạy nhanh · nhảy lên đầu quái để hạ',tip:'Nhặt 🪙 điểm, ❤️ tim, ⚡ sức bền. Trọng lực đổi trên Mặt Trăng và Sao Hỏa!',left:'Còn',help:'Một thành viên cần giúp đỡ!',find:'Tìm địa điểm này trên bản đồ:',wrong:'Chưa phải — thử lại nhé',pit:'Bạn rơi xuống hố!',pitA:'❓ Trả lời câu hỏi để giữ điểm',pitB:'Bỏ qua: mất 150 điểm',win:'Bạn đã về đích! 🏁',over:'Hết lượt chơi',again:'↻ Chơi lại',share:'📤 Chia sẻ',copied:'Đã chép!',cont:'Tiếp tục ▶',found:'Đã tìm đúng! +100',q1:'Câu 1/2 · Bản đồ',q2:'Câu 2/2 · Thông tin',reward:'+100 điểm và +1 ❤️!'}};
+const adv=$('adv'),cv=$('a-cv'),cx=cv.getContext('2d'),ov=$('a-ov'),LEN=6000,GY=330,W=800,H=400;
+const PITS=[[680,800],[1480,1600],[2560,2760],[3360,3560],[4480,4680],[5320,5480]];
+const ZN=[['earth','#1e3a8a','#0b1b3a','#78350f','#4d7c0f'],['moon','#334155','#0f172a','#6b7280','#d1d5db'],['mars','#7c2d12','#2a0e05','#7c2d12','#ea580c']];
+const zOf=x=>x<2000?0:x<4000?1:2, inPit=x=>PITS.some(t=>x>t[0]&&x<t[1]);
+const SUIT=['#38bdf8','#f43f5e','#facc15','#34d399','#a78bfa','#fb923c'],FACE=['#22d3ee','#f472b6','#fde047','#4ade80','#c084fc','#fb923c'];
+let me={name:'Astro',suit:0,face:0},A=null,keys={},aRun=false,aLast=0,aFocus=null;
+const aT=()=>AT[lang], key=e=>e.key.length===1?e.key.toLowerCase():e.key, kd=(...n)=>n.some(x=>keys[x]);
+function aOv(h){ov.innerHTML=h;ov.classList.toggle('hidden',!h);}
+
+const spr=(rows,pal,sc,mir)=>{const R=mir?rows.map(r=>r+[...r].reverse().join('')):rows,k=document.createElement('canvas');k.width=R[0].length*sc;k.height=R.length*sc;const q=k.getContext('2d');
+  R.forEach((r,y)=>[...r].forEach((ch,x)=>{if(pal[ch]){q.fillStyle=pal[ch];q.fillRect(x*sc,y*sc,sc,sc);}}));return k;};
+const shade=(h,f)=>'#'+[1,3,5].map(i=>Math.round(parseInt(h.substr(i,2),16)*f).toString(16).padStart(2,'0')).join('');
+const TOP=['..oooo','.ohhhh','ohhhhh','ohvVvv','ohvvvv','ohhhhh','.ohhhh','.ossss','ossSss','ogssss','ogssss','.ossss'].map(r=>r+[...r].reverse().join(''));
+const LEGS=[['..osssssso..','..ob....bo..','.obb....bbo.','.ooo....ooo.'],['..osssssso..','..obb...bo..','.obb.....bo.','.ooo.....oo.'],['..osssssso..','...obo.obb..','...obb..obb.','...ooo..ooo.'],['..osssssso..','.obb.....bbo','.ooo.....ooo','............']];
+const pframes=(su,vi,sc)=>LEGS.map(l=>spr(TOP.concat(l),{o:'#1b1030',h:'#f1f5f9',v:vi,V:'#fff',s:su,S:shade(su,.7),g:'#f8fafc',b:'#64748b'},sc));
+const MON=[[['.....oo','...ooGg','..oGggg','.oggggg','.ogwegg','.ogwegg','oggggGG','ogggggg','oGGGGGG','.oooooo'],{o:'#052e16',g:'#4ade80',G:'#16a34a',w:'#fff',e:'#111'}],
+ [['.....o.','.....oo','...oopp','..opppp','.oppppp','.opwepp','.opwepp','.oppppp','.oppPPP','..oPPPP','..oo.oo'],{o:'#2e1065',p:'#a78bfa',P:'#6d28d9',w:'#fff',e:'#111'}],
+ [['oo.....','orro...','.orro..','..orrro','..orrrr','.orryer','.orrrrr','.orRRRR','..oRRRR','.oo.oo.'],{o:'#450a0a',r:'#ef4444',R:'#991b1b',y:'#fde047',e:'#111'}]];
+let SP=null;
+function aSprites(){SP={pl:pframes(SUIT[me.suit],FACE[me.face],3),npc:pframes('#f97316','#4ade80',4),mon:MON.map(m=>spr(m[0],m[1],3,1)),heart:spr(['.oo..','orrro','orrrr','orrrr','.orrr','..orr','...or','....o'],{o:'#4c0519',r:'#fb7185'},2,1)};}
+function aSetup(){const t=aT();A=null;aOv(`<div class="max-w-md mx-auto text-center text-sm"><h3 class="font-black text-xl">🚀 ${t.title}</h3>
+<img alt="" src="${pframes(SUIT[me.suit],FACE[me.face],4)[0].toDataURL()}" class="mx-auto mt-2" style="image-rendering:pixelated;width:48px;height:64px">
+<label class="block mt-2 text-xs">${t.name}<input id="a-name" maxlength="12" value="${me.name}" class="ml-2 bg-black/40 border border-white/20 rounded px-2 py-1 w-32 text-center"></label>
+<div class="mt-2 text-xs">${t.suit}</div><div class="flex gap-2 justify-center mt-1">${SUIT.map((c,i)=>`<button data-a="suit" data-v="${i}" aria-label="${c}" class="w-8 h-8 rounded-full border-2 ${i===me.suit?'border-white':'border-transparent'}" style="background:${c}"></button>`).join('')}</div>
+<div class="mt-2 text-xs">${t.face}</div><div class="flex gap-2 justify-center mt-1">${FACE.map((f,i)=>`<button data-a="face" data-v="${i}" aria-label="${f}" class="w-8 h-8 rounded-md border-2 ${i===me.face?'border-white':'border-transparent'}" style="background:${f}"></button>`).join('')}</div>
+<p class="text-[11px] text-gray-300 mt-3">${t.tip}</p><button data-a="go" class="mt-3 w-full bg-cyan-400 hover:bg-cyan-300 text-black font-black py-2.5 rounded-xl">${t.go}</button></div>`);}
+function aStart(){
+  const plats=[],items=[],en=[],coins=items;
+  for(let i=0;i<14;i++){const x=250+i*400;plats.push({x,y:GY-95,w:110});
+    for(let j=0;j<3;j++)items.push({x:x+20+j*35,y:GY-125,k:'🪙'});
+    if(i%4===2)items.push({x:x+55,y:GY-150,k:'❤️'}); if(i%3===1)items.push({x:x+55,y:GY-150,k:'⚡'});}
+  PITS.forEach(t=>{const m=(t[0]+t[1])/2;[-30,0,30].forEach(d=>items.push({x:m+d,y:GY-90-(d?0:20),k:'🪙'}));});
+  [450,1150,1850,2300,3150,3850,4300,4800,5700].forEach(x=>en.push({x,x0:x,d:1,dead:0,z:zOf(x)}));
+  A={p:{x:60,y:GY-40,w:26,h:40,vx:0,vy:0,on:false,f:1,inv:0},cam:0,hp:100,hearts:3,st:100,score:0,mode:'play',cp:60,plats,items,en,t:0,
+     npcs:[{x:1000,pl:'earth'},{x:3000,pl:'moon'},{x:5000,pl:'mars'}].map(n=>({...n,done:0}))};
+  aSprites();aOv('');
+}
+function aRespawn(){const p=A.p;p.x=A.cp;p.y=GY-p.h-2;p.vy=0;p.inv=1.5;}
+function aHurt(){const p=A.p;A.hp-=25;p.inv=1.2;p.vy=-300;p.x=Math.max(0,p.x-p.f*30);
+  if(A.hp<=0){A.hearts--;A.hp=100;if(A.hearts<=0)return aEnd(false);aRespawn();}}
+function aUpd(dt){
+  const p=A.p,z=zOf(p.x),g=1800*(.25+.75*PLANETS[ZN[z][0]].g/G_EARTH);A.t+=dt;p.inv=Math.max(0,p.inv-dt);
+  const dir=(kd('ArrowRight','d')?1:0)-(kd('ArrowLeft','a')?1:0),run=keys.Shift&&dir&&A.st>0;
+  A.st=run?Math.max(0,A.st-30*dt):Math.min(100,A.st+15*dt);
+  p.vx=dir*(run?330:210);if(dir)p.f=dir;
+  if(kd('ArrowUp',' ','w')&&p.on&&A.st>=5){p.vy=-640;p.on=false;A.st-=5;}
+  p.vy+=g*dt;p.x=Math.max(0,Math.min(LEN,p.x+p.vx*dt));const oy=p.y;p.y+=p.vy*dt;p.on=false;
+  for(const q of A.plats)if(p.vy>=0&&p.x+p.w>q.x&&p.x<q.x+q.w&&oy+p.h<=q.y+2&&p.y+p.h>=q.y){p.y=q.y-p.h;p.vy=0;p.on=true;}
+  const m=p.x+p.w/2;if(!inPit(m)&&p.y+p.h>=GY&&oy+p.h<=GY+8){p.y=GY-p.h;p.vy=0;p.on=true;}
+  if(p.on&&p.y+p.h===GY&&!PITS.some(t=>m>t[0]-70&&m<t[1]+70))A.cp=p.x;
+  if(p.y>H+40){A.mode='ui';A.rs=1;const t=aT();aOv(`<div class="m-auto text-center max-w-sm pt-6"><div class="text-4xl">🕳️</div><h3 class="font-black text-lg my-2">${t.pit}</h3><button data-a="pitA" class="w-full bg-cyan-400 text-black font-bold py-2.5 rounded-xl">${t.pitA}</button><button data-a="pitB" class="w-full bg-white/10 hover:bg-white/20 font-bold py-2.5 rounded-xl mt-2">${t.pitB}</button></div>`);return;}
+  for(const e of A.en){if(e.dead)continue;e.x+=e.d*40*dt;if(Math.abs(e.x-e.x0)>70)e.d*=-1;
+    if(p.x+p.w>e.x-21&&p.x<e.x+21&&p.y+p.h>GY-32&&p.y<GY){if(p.vy>0&&p.y+p.h-(GY-32)<22){e.dead=1;p.vy=-380;A.score+=50;}else if(!p.inv){aHurt();if(A.mode!=='play')return;}}}
+  for(const i of A.items){if(i.got)continue;if(Math.hypot(i.x-m,i.y-(p.y+p.h/2))<26){i.got=1;
+    if(i.k==='🪙')A.score+=10;else if(i.k==='❤️')A.hearts=Math.min(5,A.hearts+1);else A.st=100;}}
+  for(const n of A.npcs)if(!n.done&&Math.abs(m-n.x)<45)return aMap(n);
+  if(p.x>=LEN-40){A.score+=500+A.hearts*100;aEnd(true);}
+  A.cam=Math.max(0,Math.min(LEN-W,p.x-W/3));
+}
+function aMap(n){
+  A.mode='ui';const t=aT(),s=shuf(SITES.filter(x=>x.planet===n.pl))[0];A.q={s,n};let g='';
+  for(let x=-180;x<=180;x+=30)g+=`<line x1="${x+180}" y1="0" x2="${x+180}" y2="180" stroke="${x?'#fff':'#facc15'}" stroke-opacity="${x?.25:.9}" stroke-width=".4"/><text x="${x+180}" y="178" font-size="5" fill="#fff" text-anchor="${x===-180?'start':x===180?'end':'middle'}">${Math.abs(x)}°${x<0?'W':x>0?'E':''}</text>`;
+  for(let y=-90;y<=90;y+=30)g+=`<line x1="0" y1="${90-y}" x2="360" y2="${90-y}" stroke="${y?'#fff':'#facc15'}" stroke-opacity="${y?.25:.9}" stroke-width=".4"/><text x="2" y="${90-y+(y===90?6:-1.5)}" font-size="5" fill="#fff">${Math.abs(y)}°${y<0?'S':y>0?'N':''}</text>`;
+  const pins=SITES.filter(x=>x.planet===n.pl).map(x=>`<button data-a="pin" data-v="${x.id}" class="absolute -translate-x-1/2 -translate-y-1/2 text-[10px] font-bold text-center" style="left:${(x.lon+180)/3.6}%;top:${Math.min(92,Math.max(8,(90-x.lat)/1.8))}%"><span class="block w-3.5 h-3.5 rounded-full border-2 border-white mx-auto" style="background:${x.color}"></span><span class="bg-black/70 px-1 rounded whitespace-nowrap">${L(x.name)}</span></button>`).join('');
+  aOv(`<div class="text-center text-xs"><div class="font-black text-sm">🧑‍🔬 ${t.help} · ${t.q1}</div><div class="mt-1">${PLANET_ICON[n.pl]} ${L(PLANET_NAME[n.pl])} — ${t.find}</div><div class="text-base font-black text-cyan-300 my-1">${fmtCoords(s.lat,s.lon)}</div>
+  <div class="relative w-full aspect-[2/1] rounded-xl overflow-hidden border border-white/20" style="background:#${{earth:'0c3a6b',moon:'3a3a44',mars:'6b2a12'}[n.pl]}"><svg class="absolute inset-0 w-full h-full" viewBox="0 0 360 180" aria-hidden="true">${g}</svg>${pins}</div><p id="a-msg" class="text-amber-300 mt-1 h-4"></p></div>`);
+}
+function qSite(s){
+  const nums=s.facts.filter(f=>f.v!=null),r=Math.random(),nm=L(s.name),vi=lang==='vi',lt=f=>L(FACT_LABEL[f.k])+': '+fmtFact(f),ex=`<b>${nm}</b> — ${L(s.why)}`;
+  if(nums.length&&r<.4){const f=shuf(nums)[0],v=f.v,lab=L(FACT_LABEL[f.k]);
+    return{q:vi?`${lab} của ${nm} khoảng bao nhiêu?`:`About how large is the ${lab.toLowerCase()} of ${nm}?`,o:shuf([v,+(v*2).toPrecision(2),+(v/2).toPrecision(2)]).map(x=>({t:(f.a?'≈ ':'')+nf(x)+' '+L(UNITS[f.u]),ok:x===v})),e:ex};}
+  if(r<.75){const mine=s.facts.map(lt),ok=shuf(mine)[0],bad=[...new Set(shuf(SITES.filter(x=>x!==s).flatMap(x=>x.facts)).map(lt))].filter(x=>!mine.includes(x)).slice(0,2);
+    return{q:vi?`Thông tin nào đúng về ${nm}?`:`Which fact is true about ${nm}?`,o:shuf([ok,...bad]).map(x=>({t:x,ok:x===ok})),e:ex};}
+  return qGen(s,1);
+}
+function qGen(s,noG){
+  const G=GT[lang];
+  if(!noG&&Math.random()<.35){const p=['moon','mars'][Math.random()*2|0],j=[40,50,60][Math.random()*3|0],g=PLANETS[p].g,r=Math.round(j*G_EARTH/g);
+    return{q:G.qGrav(j,L(PLANET_NAME[p])),o:shuf([r,j,Math.round(j*g/G_EARTH)]).map(v=>({t:nf(v,0)+' cm',ok:v===r})),e:G.gcalc(L(PLANET_NAME[p]),nf(g),j,nf(r,0))};}
+  const c=SITES.find(x=>x.pair===s.pair&&x.planet!==s.planet),w=shuf(SITES.filter(x=>x.pair!==s.pair&&x.planet!==s.planet)).slice(0,2);
+  return{q:lang==='vi'?`Địa điểm nào là "địa điểm tương đồng" của ${L(s.name)}?`:`Which place is the analogue of ${L(s.name)}?`,o:shuf([c,...w]).map(x=>({t:L(x.name),ok:x===c})),e:`<b>${L(s.name)}</b> — ${L(s.why)}`};
+}
+function aQuiz(s,ctx,pick){
+  A.ctx=ctx;const q=A.cur=ctx==='npc'?qSite(s):qGen(s);
+  aOv(`<div class="max-w-lg mx-auto text-sm">${ctx==='npc'?`<p class="text-center text-xs text-emerald-300">📍 ${aT().found} · ${aT().q2}</p>`:''}<h3 class="font-black text-center">${ctx==='pit'?'🕳️':'🧑‍🔬'} ${q.q}</h3><div class="grid gap-2 mt-3">${q.o.map((o,k)=>`<button data-a="ans" data-v="${k}" class="bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl py-2.5 px-3 font-bold">${o.t}</button>`).join('')}</div></div>`);
+}
+function aAns(k){
+  const t=aT(),G=GT[lang],q=A.cur,ok=q.o[k].ok;A.ok=ok;
+  aOv(`<div class="max-w-lg mx-auto text-sm"><h3 class="font-black text-center">${q.q}</h3><div class="grid gap-2 mt-3">${q.o.map((o,j)=>`<button disabled class="border rounded-xl py-2.5 px-3 font-bold ${o.ok?'bg-emerald-500/30 border-emerald-300':j===k?'bg-rose-500/30 border-rose-300':'bg-white/5 border-white/10 opacity-60'}">${o.t}</button>`).join('')}</div>
+  <div class="mt-3 rounded-xl p-3 text-xs leading-relaxed ${ok?'bg-emerald-500/15':'bg-rose-500/15'}"><b>${ok?G.ok:G.no}</b>${q.e}${ok&&A.ctx==='npc'?`<br><b class="text-amber-300">${t.reward}</b>`:''}</div>
+  <button data-a="cont" class="mt-3 w-full bg-cyan-400 text-black font-black py-2.5 rounded-xl">${t.cont}</button></div>`);
+}
+function aDone(){
+  if(A.ctx==='npc'){A.q.n.done=1;if(A.ok){A.score+=100;A.hearts=Math.min(5,A.hearts+1);}}
+  else if(!A.ok)A.score=Math.max(0,A.score-100);
+  aResume();
+}
+function aResume(){if(A.rs){A.rs=0;aRespawn();}A.mode='play';aOv('');}
+function aEnd(win){
+  A.mode='over';const t=aT(),r=GT[lang].ranks[A.score<500?0:A.score<1200?1:A.score<2000?2:3];
+  aOv(`<div class="max-w-sm mx-auto text-center pt-4"><div class="text-5xl">${win?'🏆':'💥'}</div><h3 class="font-black text-xl mt-2">${win?t.win:t.over}</h3><p class="text-xs text-cyan-200 mt-1">${me.name} · ${r}</p><p class="text-3xl font-black mt-2">⭐ ${A.score}</p>
+  <div class="flex gap-2 mt-4"><button data-a="share" class="flex-1 bg-violet-500 hover:bg-violet-400 font-bold py-2.5 rounded-xl">${t.share}</button><button data-a="again" class="flex-1 bg-white/10 hover:bg-white/20 font-bold py-2.5 rounded-xl">${t.again}</button></div></div>`);
+}
+async function aShare(){const txt=`${me.name}: ⭐ ${A.score} — Space Runner (SMW Planetary Analogues Explorer)`;
+  try{if(navigator.share){await navigator.share({text:txt,url:location.href});return;}}catch(e){if(e&&e.name==='AbortError')return;}
+  try{await navigator.clipboard.writeText(txt+' '+location.href);toast(aT().copied,true);}catch(e){toast(txt,true);}}
+function aDraw(){
+  const c=cx,cam=A?A.cam:0,z=zOf(cam+W/2),Z=ZN[z],t=A?A.t:0;c.imageSmoothingEnabled=false;
+  const gr=c.createLinearGradient(0,0,0,H);gr.addColorStop(0,Z[1]);gr.addColorStop(1,Z[2]);c.fillStyle=gr;c.fillRect(0,0,W,H);
+  for(let i=0;i<50;i++){c.fillStyle=(i+Math.floor(t*2))%5?'#fff9':'#fff';const q=i%7?2:4;c.fillRect((((i*97)%W-cam*.1)%W+W)%W,(i*53)%230,q,q);}
+  c.fillStyle={earth:'#3b82f6',moon:'#cbd5e1',mars:'#fb923c'}[Z[0]];c.beginPath();c.arc(660,80,40,0,7);c.fill();c.fillStyle='#0003';c.beginPath();c.arc(676,70,30,0,7);c.fill();
+  for(let x=0;x<W;x+=16){const h=30+((Math.sin((x+cam*.35)/60)+1)*22|0);c.fillStyle=Z[3]+'99';c.fillRect(x,GY-h,16,h);}
+  if(!A)return;
+  const D=(im,x,y,fl)=>{if(fl){c.save();c.translate(x+im.width,y);c.scale(-1,1);c.drawImage(im,0,0);c.restore();}else c.drawImage(im,x,y);};
+  for(let x=Math.floor(cam/40)*40;x<cam+W;x+=40)if(!inPit(x+20)){const q=ZN[zOf(x)];c.fillStyle=q[3];c.fillRect(x-cam,GY,40,H-GY);c.fillStyle='#0004';for(let r=0;r<3;r++){c.fillRect(x-cam,GY+16+r*24,40,2);c.fillRect(x-cam+(r%2?0:20),GY+16+r*24,2,24);}c.fillStyle=q[4];c.fillRect(x-cam,GY,40,8);c.fillStyle='#fff3';c.fillRect(x-cam,GY,40,2);}
+  A.plats.forEach(q=>{c.fillStyle='#92400e';c.fillRect(q.x-cam,q.y,q.w,24);c.fillStyle='#000a';c.fillRect(q.x-cam,q.y+12,q.w,2);for(let k=0;k<q.w;k+=22){c.fillRect(q.x-cam+k,q.y+(k%44?12:0),2,12);}c.fillStyle='#fcd34d';c.fillRect(q.x-cam,q.y,q.w,4);c.strokeStyle='#1c0a00';c.lineWidth=2;c.strokeRect(q.x-cam,q.y,q.w,24);});
+  A.items.forEach(i=>{if(i.got)return;const x=i.x-cam,y=i.y+Math.sin(A.t*4+i.x)*3;
+    if(i.k==='🪙'){const w=Math.abs(Math.cos(t*4+i.x))*7+2;c.fillStyle='#a16207';c.fillRect(x-w-2,y-10,w*2+4,20);c.fillStyle='#facc15';c.fillRect(x-w,y-8,w*2,16);c.fillStyle='#fef9c3';c.fillRect(x-w+1,y-6,2,8);}
+    else if(i.k==='❤️')c.drawImage(SP.heart,x-10,y-8);
+    else{c.fillStyle='#1c1917';c.beginPath();c.moveTo(x+2,y-12);c.lineTo(x-8,y+2);c.lineTo(x-1,y+2);c.lineTo(x-4,y+12);c.lineTo(x+8,y-3);c.lineTo(x+1,y-3);c.closePath();c.fill();c.fillStyle='#facc15';c.beginPath();c.moveTo(x+1,y-9);c.lineTo(x-5,y+1);c.lineTo(x+1,y+1);c.lineTo(x-2,y+8);c.lineTo(x+5,y-2);c.lineTo(x-1,y-2);c.closePath();c.fill();}});
+  A.en.forEach(e=>{if(e.dead)return;const im=SP.mon[e.z];D(im,e.x-im.width/2-cam,GY-im.height-Math.abs(Math.sin(t*6+e.x))*5,e.d<0);});
+  A.npcs.forEach(n=>{const im=SP.npc[0],b=Math.sin(t*5)*2,x=n.x-im.width/2-cam;D(im,x,GY-im.height+b);
+    if(!n.done){const by=GY-im.height-30+Math.sin(t*6)*4;c.fillStyle='#fff';c.fillRect(n.x-cam-14,by,28,24);c.fillRect(n.x-cam-3,by+24,6,6);c.strokeStyle='#000';c.lineWidth=2;c.strokeRect(n.x-cam-14,by,28,24);c.fillStyle='#dc2626';c.font='bold 20px monospace';c.textAlign='center';c.textBaseline='top';c.fillText('!',n.x-cam,by+3);}});
+  c.fillStyle='#e5e7eb';c.fillRect(LEN-24-cam,GY-120,5,120);c.fillStyle='#ef4444';c.beginPath();c.moveTo(LEN-19-cam,GY-118);c.lineTo(LEN+21-cam,GY-100+Math.sin(t*5)*3);c.lineTo(LEN-19-cam,GY-82);c.fill();c.fillStyle='#facc15';c.fillRect(LEN-27-cam,GY-124,11,6);
+  const p=A.p;if(!(p.inv>0&&Math.floor(A.t*10)%2)){const fr=!p.on?3:Math.abs(p.vx)>1?1+(Math.floor(t*10)%2):0,im=SP.pl[fr];
+    D(im,p.x+p.w/2-im.width/2-cam,p.y+p.h-im.height,p.f<0);
+    c.fillStyle='#fff';c.font='bold 11px monospace';c.textAlign='center';c.textBaseline='alphabetic';c.fillText(me.name,p.x+p.w/2-cam,p.y+p.h-im.height-4);}
+  c.textAlign='left';c.textBaseline='top';c.font='bold 11px monospace';
+  for(let i=0;i<A.hearts;i++)c.drawImage(SP.heart,10+i*23,6);
+  [['HP','#ef4444',A.hp,26],['EN','#facc15',A.st,40]].forEach(b=>{c.fillStyle='#fff';c.fillText(b[0],10,b[3]);c.fillStyle='#000a';c.fillRect(32,b[3],120,10);c.fillStyle=b[1];c.fillRect(32,b[3],1.2*b[2],10);c.strokeStyle='#fff';c.lineWidth=1;c.strokeRect(32.5,b[3]+.5,119,9);});
+  c.fillStyle='#fff';c.font='bold 16px monospace';c.textAlign='center';c.fillText('★ '+A.score,W/2,8);
+  const pl=ZN[zOf(p.x)][0];c.font='11px monospace';c.fillText(`${PLANET_ICON[pl]} ${L(PLANET_NAME[pl])} · g = ${nf(PLANETS[pl].g)}`,W/2,28);
+  c.textAlign='right';c.font='bold 12px monospace';c.fillText(`🏁 ${aT().left}: ${Math.max(0,(LEN-p.x)/20|0)} m`,W-10,8);c.fillStyle='#fff3';c.fillRect(W-160,26,150,8);c.fillStyle='#22d3ee';c.fillRect(W-160,26,150*p.x/LEN,8);
+}
+function aLoop(t){if(adv.classList.contains('hidden')){aRun=false;return;}const dt=Math.min(.033,(t-aLast)/1e3||0);aLast=t;if(A&&A.mode==='play')aUpd(dt);aDraw();requestAnimationFrame(aLoop);}
+function openAdv(){stopTour();aFocus=document.activeElement;adv.classList.remove('hidden');adv.classList.add('flex');keys={};aSetup();if(!aRun){aRun=true;requestAnimationFrame(aLoop);}}
+function aClose(){adv.classList.add('hidden');adv.classList.remove('flex');keys={};aFocus?.focus();}
+adv.addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a,v=b.dataset.v;
+  if(a==='x')aClose();else if(a==='suit'){me.suit=+v;aSetup();}else if(a==='face'){me.face=+v;aSetup();}
+  else if(a==='go'||a==='again')aStart();
+  else if(a==='pin'){if(v===A.q.s.id){A.score+=100;aQuiz(A.q.s,'npc');}else{b.disabled=true;b.classList.add('opacity-40');$('a-msg').textContent=aT().wrong;}}
+  else if(a==='ans'&&A.cur)aAns(+v);else if(a==='cont')aDone();
+  else if(a==='pitA')aQuiz(shuf(SITES)[0],'pit');
+  else if(a==='pitB'){A.score=Math.max(0,A.score-150);aResume();}
+  else if(a==='share')aShare();});
+adv.addEventListener('input',e=>{if(e.target.id==='a-name')me.name=e.target.value.replace(/[<>&"']/g,'').slice(0,12)||'Astro';});
+adv.addEventListener('pointerdown',e=>{const b=e.target.closest('[data-k]');if(b)keys[b.dataset.k]=1;});
+['pointerup','pointercancel','pointerleave'].forEach(n=>adv.addEventListener(n,()=>['ArrowLeft','ArrowRight','ArrowUp','Shift'].forEach(k=>delete keys[k]),true));
+addEventListener('keydown',e=>{if(adv.classList.contains('hidden'))return;e.stopImmediatePropagation();
+  if(e.key==='Escape'){aClose();return;}if(e.target.tagName==='INPUT')return;
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();keys[key(e)]=1;},true);
+addEventListener('keyup',e=>{delete keys[key(e)];},true);addEventListener('blur',()=>{keys={};});
+$('btn-adv').onclick=openAdv;
+function advLang(){$('btn-adv').textContent=aT().btn;$('a-title').textContent='🕹️ '+aT().title;$('a-keys').textContent=aT().keys;if(!adv.classList.contains('hidden')&&(!A||A.mode==='ui')&&!A?.cur&&!A?.q&&!A?.rs)if(!A)aSetup();}
+
+buildCards();
+switchPlanet('earth',true);
+applyLang();
+if(isPhone()){ setPanelOpen(false); camera.position.set(0,0.4,4.4); }
+updateView();
+if(!isPhone()) camera.position.setLength(fitDistance());
+animate();
+window.__appReady=true;
+</script>
+</body>
+</html>
